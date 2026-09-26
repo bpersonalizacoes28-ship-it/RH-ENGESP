@@ -17,13 +17,8 @@ st.set_page_config(page_title="Sistema de Gestão RH", layout="wide", initial_si
 # =========================================================
 st.markdown("""
     <style>
-    /* Oculta o cabeçalho superior padrão do Streamlit (contém Deploy, Settings, Share) */
     header {visibility: hidden !important;}
-    
-    /* Oculta o menu hambúrguer de três traços do canto superior direito */
     #MainMenu {visibility: hidden !important;}
-    
-    /* Oculta o rodapé padrão 'Made with Streamlit' */
     footer {visibility: hidden !important;}
 
     .main { background-color: #f8f9fa; }
@@ -149,20 +144,6 @@ def init_db():
             FOREIGN KEY (filial_id) REFERENCES filiais (id)
         )
     ''')
-    
-    try:
-        c.execute("ALTER TABLE colaboradores ADD COLUMN tipo_usuario_va TEXT DEFAULT 'Já Usuário'")
-    except Exception:
-        pass
-    try:
-        c.execute("ALTER TABLE colaboradores ADD COLUMN motivo_retorno TEXT DEFAULT 'Folga'")
-    except Exception:
-        pass
-    try:
-        c.execute("ALTER TABLE colaboradores ADD COLUMN status_solicitacao_va TEXT DEFAULT 'Normal / Atualizado'")
-    except Exception:
-        pass
-
     c.execute('''
         CREATE TABLE IF NOT EXISTS historico_colaboradores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,6 +153,20 @@ def init_db():
             valor_novo TEXT,
             data_registro DATETIME,
             FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula)
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS historico_pedidos_va (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mes_ano TEXT,
+            filial_nome TEXT,
+            matricula TEXT,
+            cnpj_empresa TEXT,
+            nome TEXT,
+            cpf TEXT,
+            saldo REAL,
+            tipo_usuario TEXT,
+            data_registro DATETIME
         )
     ''')
     conn.commit()
@@ -618,7 +613,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 4: CADASTRO DE FILIAIS (COM OPÇÃO DE EDIÇÃO E EXCLUSÃO)
+# MÓDULO 4: CADASTRO DE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🏢 Cadastro de Filiais":
     st.title("🏢 Gestão e Cadastro de Filiais")
@@ -734,59 +729,161 @@ elif menu == "🔄 Transferência entre Filiais":
                     st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 6: PEDIDO SALDO ALIMENTAÇÃO
+# MÓDULO 6: PEDIDO SALDO ALIMENTAÇÃO (ATUALIZADO)
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
     st.title("💳 Pedido e Gestão de Saldo do Cartão Alimentação")
-    st.write("Gerencie rapidamente o saldo, tipo de usuário e altere o status para **Normal / Atualizado** ou **Solicitar Saldo**.")
+    st.write("Selecione a competência (mês e ano), edite os valores de saldo e o tipo de usuário individualmente ou em lote para toda a filial.")
 
-    conn = sqlite3.connect(DB_FILE)
-    df_va = pd.read_sql_query('''
-        SELECT c.matricula, c.nome, f.nome as filial, c.saldo_cartao_alimentacao, 
-               c.status_solicitacao_va, c.tipo_usuario_va
-        FROM colaboradores c
-        LEFT JOIN filiais f ON c.filial_id = f.id
-        ORDER BY c.nome
-    ''', conn)
-    conn.close()
+    tab_lanc, tab_hist = st.tabs(["📋 Lançamento e Atualização por Filial", "📜 Histórico de Pedidos e Exportação"])
 
-    if df_va.empty:
-        st.info("Nenhum colaborador cadastrado.")
-    else:
-        opcoes_va = df_va['matricula'] + " - " + df_va['nome'] + " (Status: " + df_va['status_solicitacao_va'].fillna('Normal / Atualizado') + ")"
-        colab_va_sel = st.selectbox("Selecione o Colaborador:", opcoes_va)
+    with tab_lanc:
+        conn = sqlite3.connect(DB_FILE)
+        df_va_base = pd.read_sql_query('''
+            SELECT c.matricula, c.nome, c.cpf, c.cnpj_empresa, f.nome as filial, 
+                   c.saldo_cartao_alimentacao, c.tipo_usuario_va
+            FROM colaboradores c
+            LEFT JOIN filiais f ON c.filial_id = f.id
+            ORDER BY c.nome
+        ''', conn)
+        conn.close()
 
-        if colab_va_sel:
-            mat_va = colab_va_sel.split(" - ")[0]
-            colab_info = df_va[df_va['matricula'] == mat_va].iloc[0]
+        if df_va_base.empty:
+            st.info("Nenhum colaborador cadastrado.")
+        else:
+            st.subheader("1. Seleção de Competência (Mês / Ano)")
+            col_m1, col_m2 = st.columns(2)
+            meses_disp = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            mes_atual_idx = datetime.now().month - 1
+            mes_sel = col_m1.selectbox("Mês de Referência:", meses_disp, index=mes_atual_idx)
+            
+            anos_disp = [str(y) for y in range(datetime.now().year - 1, datetime.now().year + 3)]
+            ano_sel = col_m2.selectbox("Ano de Referência:", anos_disp, index=1)
+            competencia_str = f"{mes_sel} / {ano_sel}"
 
             st.markdown("---")
-            v1, v2, v3 = st.columns(3)
+            st.subheader("2. Seleção de Filial e Filtro por Tipo de Usuário")
             
-            novo_saldo = v1.number_input("Saldo Cartão Alimentação (R$)", value=float(colab_info['saldo_cartao_alimentacao'] or 0.0), step=10.0)
+            opcoes_filial_va = sorted(df_va_base['filial'].dropna().unique().tolist())
+            filial_va_escolhida = st.selectbox("Selecione a Filial:", opcoes_filial_va)
             
-            status_atual_va = colab_info['status_solicitacao_va'] if colab_info['status_solicitacao_va'] in ["Normal / Atualizado", "Solicitar Saldo"] else "Normal / Atualizado"
-            status_idx = ["Normal / Atualizado", "Solicitar Saldo"].index(status_atual_va)
-            novo_status_va = v2.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"], index=status_idx)
+            # Filtro por Tipo de Usuário
+            filtro_tipo_usuario = st.multiselect("Filtrar por Tipo de Usuário (Opcional):", ["Novo Usuário", "Já Usuário"], default=["Novo Usuário", "Já Usuário"])
 
-            tipo_atual_va = colab_info['tipo_usuario_va'] if colab_info['tipo_usuario_va'] in ["Novo Usuário", "Já Usuário"] else "Já Usuário"
-            tipo_idx = ["Novo Usuário", "Já Usuário"].index(tipo_atual_va)
-            novo_tipo_va = v3.selectbox("Tipo de Usuário (Alimentação)", ["Novo Usuário", "Já Usuário"], index=tipo_idx)
+            df_filial_edit = df_va_base[df_va_base['filial'] == filial_va_escolhida].copy()
+            if filtro_tipo_usuario:
+                df_filial_edit = df_filial_edit[df_filial_edit['tipo_usuario_va'].isin(filtro_tipo_usuario)]
 
-            if st.button("💾 Salvar Dados do Cartão Alimentação"):
-                registrar_historico(mat_va, "Status Cartão Alimentação", status_atual_va, novo_status_va)
+            if df_filial_edit.empty:
+                st.warning("Nenhum colaborador encontrado para os filtros selecionados nesta filial.")
+            else:
+                st.write(f"Editando colaboradores da filial **{filial_va_escolhida}** para o período **{competencia_str}**:")
                 
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute('''
-                    UPDATE colaboradores 
-                    SET saldo_cartao_alimentacao = ?, status_solicitacao_va = ?, tipo_usuario_va = ?
-                    WHERE matricula = ?
-                ''', (novo_saldo, novo_status_va, novo_tipo_va, mat_va))
-                conn.commit()
-                conn.close()
-                st.success("Informações do Cartão Alimentação atualizadas com sucesso!")
-                st.rerun()
+                # Configurando dados editáveis em tabela (data_editor)
+                df_filial_edit['Editar Saldo (R$)'] = df_filial_edit['saldo_cartao_alimentacao'].astype(float)
+                df_filial_edit['Editar Tipo Usuário'] = df_filial_edit['tipo_usuario_va']
+                
+                # Ordem rigorosa solicitada: CNPJ, Nome do Colaborador, CPF, Saldo, Tipo de Usuário
+                tabela_para_edicao = df_filial_edit[['cnpj_empresa', 'nome', 'cpf', 'Editar Saldo (R$)', 'Editar Tipo Usuário']].copy()
+                tabela_para_edicao.columns = ['CNPJ', 'Nome do Colaborador', 'CPF', 'Saldo', 'Tipo de Usuário']
+                
+                tabela_editada = st.data_editor(
+                    tabela_para_edicao,
+                    column_config={
+                        "CNPJ": st.column_config.TextColumn("CNPJ", disabled=True),
+                        "Nome do Colaborador": st.column_config.TextColumn("Nome do Colaborador", disabled=True),
+                        "CPF": st.column_config.TextColumn("CPF", disabled=True),
+                        "Saldo": st.column_config.NumberColumn("Saldo (R$)", min_value=0.0, step=10.0, format="R$ %.2f"),
+                        "Tipo de Usuário": st.column_config.SelectboxColumn("Tipo de Usuário", options=["Novo Usuário", "Já Usuário"], required=True)
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+
+                if st.button("💾 Salvar e Registrar Pedido para esta Filial"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    
+                    # Remove registros anteriores salvos para o mesmo mês/ano e filial para evitar duplicatas ao atualizar
+                    c.execute("DELETE FROM historico_pedidos_va WHERE mes_ano = ? AND filial_nome = ?", (competencia_str, filial_va_escolhida))
+                    
+                    for idx, row in tabela_editada.iterrows():
+                        mat_original = df_filial_edit.iloc[idx]['matricula']
+                        novo_saldo_val = float(row['Saldo'])
+                        novo_tipo_val = row['Tipo de Usuário']
+                        cnpj_val = row['CNPJ']
+                        nome_val = row['Nome do Colaborador']
+                        cpf_val = row['CPF']
+                        
+                        # Atualiza cadastro principal
+                        c.execute('''
+                            UPDATE colaboradores 
+                            SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
+                            WHERE matricula = ?
+                        ''', (novo_saldo_val, novo_tipo_val, mat_original))
+                        
+                        # Salva no histórico de pedidos mensais
+                        c.execute('''
+                            INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, saldo, tipo_usuario, data_registro)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (competencia_str, filial_va_escolhida, mat_original, cnpj_val, nome_val, cpf_val, novo_saldo_val, novo_tipo_val, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                        
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Pedido de Saldo Alimentação da filial {filial_va_escolhida} referente a {competencia_str} salvo com sucesso!")
+                    st.rerun()
+
+    with tab_hist:
+        st.subheader("📜 Histórico de Pedidos de Saldo Alimentação")
+        
+        conn = sqlite3.connect(DB_FILE)
+        df_hist_va = pd.read_sql_query('''
+            SELECT id, mes_ano as "Mês/Ano", filial_nome as "Filial", cnpj_empresa as "CNPJ", 
+                   nome as "Nome do Colaborador", cpf as "CPF", saldo as "Saldo", tipo_usuario as "Tipo de Usuário", data_registro as "Data Registro"
+            FROM historico_pedidos_va
+            ORDER BY data_registro DESC
+        ''', conn)
+        conn.close()
+
+        if df_hist_va.empty:
+            st.info("Nenhum pedido registrado no histórico até o momento.")
+        else:
+            meses_disponiveis_hist = sorted(df_hist_va['Mês/Ano'].dropna().unique().tolist())
+            mes_export_sel = st.selectbox("Selecione o Mês/Ano para Exportação/Gerenciamento:", meses_disponiveis_hist)
+            
+            df_hist_filtrado = df_hist_va[df_hist_va['Mês/Ano'] == mes_export_sel]
+            
+            st.write(f"Exibindo registros para o período: **{mes_export_sel}** ({len(df_hist_filtrado)} registros)")
+            
+            # Exibe na ordem exata solicitada: CNPJ, Nome do Colaborador, CPF, Saldo, Tipo de Usuário
+            tabela_exibicao_hist = df_hist_filtrado[['CNPJ', 'Nome do Colaborador', 'CPF', 'Saldo', 'Tipo de Usuário', 'Filial']].copy()
+            st.dataframe(tabela_exibicao_hist, use_container_width=True)
+
+            col_exp_1, col_exp_2 = st.columns(2)
+            
+            with col_exp_1:
+                # Botão para exportar o mês selecionado em Excel na ordem exata
+                output_va = io.BytesIO()
+                with pd.ExcelWriter(output_va, engine='openpyxl') as writer:
+                    tabela_exibicao_hist.to_excel(writer, index=False, sheet_name='Pedido VA')
+                excel_va_data = output_va.getvalue()
+
+                st.download_button(
+                    label=f"📥 Baixar Relatório do Mês ({mes_export_sel}) em Excel",
+                    data=excel_va_data,
+                    file_name=f"pedido_va_{mes_export_sel.replace('/', '_').strip()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            with col_exp_2:
+                if st.button(f"🗑️ Excluir Histórico do Mês ({mes_export_sel})", type="primary"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM historico_pedidos_va WHERE mes_ano = ?", (mes_export_sel,))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Histórico do período {mes_export_sel} excluído com sucesso!")
+                    st.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 7: IMPORTAR EXCEL POR FILIAL
