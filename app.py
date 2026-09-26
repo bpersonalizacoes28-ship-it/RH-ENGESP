@@ -24,9 +24,11 @@ if "email_usuario" not in st.session_state:
     st.session_state.email_usuario = ""
 
 # Lista de e-mails autorizados dos administrativos das filiais (ou ajuste para seu domínio)
-def verificar_email_autorizado(email):
-    emails_permitidos = ["admin@empresa.com", "filial1@empresa.com", "filial2@empresa.com"]
-    return email in emails_permitidos or "@empresa.com" in email
+    def verificar_email_autorizado(email):
+    # Permite qualquer e-mail válido que contenha "@" e "."
+    if "@" in email and "." in email:
+        return True
+    return False
 
 if not st.session_state.autenticado:
     st.title("🔐 Acesso Restrito - Gestão RH")
