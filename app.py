@@ -793,7 +793,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         "CNPJ": st.column_config.TextColumn("CNPJ", disabled=True),
                         "Nome do Colaborador": st.column_config.TextColumn("Nome do Colaborador", disabled=True),
                         "CPF": st.column_config.TextColumn("CPF", disabled=True),
-                        "Saldo": st.column_config.NumberColumn("Saldo (R$)", min_value=0.0, step=10.0, format="R$ %.2f"),
+                        "Saldo": st.column_config.NumberColumn("Saldo (R$)", min_value=0.0, step=0.5, format="R$ %.2f"),
                         "Tipo de Usuário": st.column_config.SelectboxColumn("Tipo de Usuário", options=["Novo Usuário", "Já Usuário"], required=True)
                     },
                     hide_index=True,
@@ -862,7 +862,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
             col_exp_1, col_exp_2 = st.columns(2)
             
             with col_exp_1:
-                # Botão para exportar o mês selecionado em Excel na ordem exata
+                # Botão para exportar o mês selecionado em Excel na ordem exata sem formatação abreviada
                 output_va = io.BytesIO()
                 with pd.ExcelWriter(output_va, engine='openpyxl') as writer:
                     tabela_exibicao_hist.to_excel(writer, index=False, sheet_name='Pedido VA')
