@@ -31,7 +31,7 @@ def verificar_email_autorizado(email):
 
 if not st.session_state.autenticado:
     st.title("🔐 Acesso Restrito - Gestão RH")
-    st.write("Digite seu e-mail para receber o código de acesso de 6 dígitos.")
+    st.write("Digite seu e-mail corporativo para receber o código de acesso de 6 dígitos.")
     
     email_input = st.text_input("E-mail do Administrativo:")
     
@@ -75,9 +75,232 @@ if not st.session_state.autenticado:
     st.stop() # Interrompe a execução do restante do app até que o usuário faça o login
 
 # =========================================================
-# A PARTIR DAQUI FICA O RESTANTE DO SEU PROGRAMA PRINCIPAL
+# ESTILIZAÇÃO CSS PERSONALIZADA
 # =========================================================
-st.sidebar.title("Menu do Sistema")
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    h1 { color: #1e3a8a; font-family: 'Segoe UI', sans-serif; font-weight: 700; margin-bottom: 20px; }
+    h2, h3 { color: #1e40af; font-family: 'Segoe UI', sans-serif; }
+    div[data-testid="stMetric"] {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e5e7eb;
+    }
+    .stButton>button {
+        background-color: #1e40af;
+        color: white;
+        border-radius: 8px;
+        font-weight: 600;
+        border: none;
+        padding: 8px 16px;
+    }
+    .stButton>button:hover { background-color: #1d4ed8; color: white; }
+    </style>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# BANCO DE DADOS - INICIALIZAÇÃO
+# ---------------------------------------------------------
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS filiais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL UNIQUE,
+            cnpj TEXT
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS colaboradores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            matricula TEXT UNIQUE NOT NULL,
+            nome TEXT NOT NULL,
+            cpf TEXT,
+            rg TEXT,
+            funcao TEXT,
+            cnpj_empresa TEXT,
+            filial_id INTEGER,
+            data_nascimento DATE,
+            data_contratacao DATE,
+            data_retorno_folga DATE,
+            intervalo_folga_dias INTEGER,
+            proxima_folga DATE,
+            he_50 REAL DEFAULT 0,
+            he_100 REAL DEFAULT 0,
+            saldo_cartao_alimentacao REAL DEFAULT 0,
+            status_aso TEXT,
+            doc_pessoais TEXT,
+            doc_preadmissionais TEXT,
+            doc_admissionais TEXT,
+            tipo_usuario_va TEXT DEFAULT 'Já Usuário',
+            motivo_retorno TEXT DEFAULT 'Folga',
+            status_solicitacao_va TEXT DEFAULT 'Normal / Atualizado',
+            FOREIGN KEY (filial_id) REFERENCES filiais (id)
+        )
+    ''')
+    
+    try:
+        c.execute("ALTER TABLE colaboradores ADD COLUMN tipo_usuario_va TEXT DEFAULT 'Já Usuário'")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE colaboradores ADD COLUMN motivo_retorno TEXT DEFAULT 'Folga'")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE colaboradores ADD COLUMN status_solicitacao_va TEXT DEFAULT 'Normal / Atualizado'")
+    except Exception:
+        pass
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS historico_colaboradores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            colaborador_matricula TEXT,
+            tipo_alteracao TEXT,
+            valor_antigo TEXT,
+            valor_novo TEXT,
+            data_registro DATETIME,
+            FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula)
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS saldos_alimentacao_mensal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            colaborador_matricula TEXT NOT NULL,
+            mes TEXT NOT NULL,
+            ano INTEGER NOT NULL,
+            saldo REAL DEFAULT 0,
+            tipo_usuario TEXT DEFAULT 'Já Usuário',
+            data_atualizacao DATETIME,
+            UNIQUE(colaborador_matricula, mes, ano),
+            FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula)
+        )
+    ''')
+    
+    try:
+        c.execute("ALTER TABLE saldos_alimentacao_mensal ADD COLUMN tipo_usuario TEXT DEFAULT 'Já Usuário'")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE saldos_alimentacao_mensal ADD COLUMN data_atualizacao DATETIME")
+    except Exception:
+        pass
+
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# ---------------------------------------------------------
+# FUNÇÕES DE FORMATAÇÃO E MASCARAS (BR)
+# ---------------------------------------------------------
+def formatar_cpf(valor):
+    if not valor or pd.isna(valor):
+        return ""
+    nums = re.sub(r'\D', '', str(valor))
+    if len(nums) == 11:
+        return f"{nums[:3]}.{nums[3:6]}.{nums[6:9]}-{nums[9:]}"
+    return str(valor)
+
+def formatar_cnpj(valor):
+    if not valor or pd.isna(valor):
+        return ""
+    nums = re.sub(r'\D', '', str(valor))
+    if len(nums) == 14:
+        return f"{nums[:2]}.{nums[2:5]}.{nums[5:8]}/{nums[8:12]}-{nums[12:]}"
+    return str(valor)
+
+# ---------------------------------------------------------
+# FUNÇÕES DE DATA E BANCO
+# ---------------------------------------------------------
+MIN_DATE = date(1900, 1, 1)
+MAX_DATE = date(2100, 12, 31)
+
+def registrar_historico(matricula, tipo, antigo, novo):
+    if str(antigo).strip() != str(novo).strip():
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO historico_colaboradores (colaborador_matricula, tipo_alteracao, valor_antigo, valor_novo, data_registro)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (matricula, tipo, str(antigo), str(novo), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
+
+def converter_para_date(valor):
+    if not valor or pd.isna(valor) or str(valor).strip() in ["", "None", "NaT"]:
+        return None
+    if isinstance(valor, date) and not isinstance(valor, datetime):
+        return valor
+    if isinstance(valor, datetime):
+        return valor.date()
+    
+    val_str = str(valor).split()[0].strip()
+    try:
+        if "/" in val_str:
+            partes = val_str.split("/")
+            if len(partes) == 3:
+                return date(int(partes[2]), int(partes[1]), int(partes[0]))
+        elif "-" in val_str:
+            partes = val_str.split("-")
+            if len(partes) == 3:
+                return date(int(partes[0]), int(partes[1]), int(partes[2]))
+    except Exception:
+        pass
+    return None
+
+def calcular_proxima_folga(data_retorno, dias):
+    dt = converter_para_date(data_retorno)
+    if dt and dias:
+        try:
+            proxima = dt + timedelta(days=int(dias))
+            return proxima
+        except Exception:
+            return None
+    return None
+
+def parse_date_para_input(valor_str):
+    dt = converter_para_date(valor_str)
+    return dt if dt else date.today()
+
+def formatar_data_br(valor):
+    dt = converter_para_date(valor)
+    if dt:
+        return dt.strftime("%d/%m/%Y")
+    return str(valor) if valor and not pd.isna(valor) else ""
+
+def get_filiais_dict():
+    conn = sqlite3.connect(DB_FILE)
+    df = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
+    conn.close()
+    return dict(zip(df['nome'], df['id'])), dict(zip(df['id'], df['nome']))
+
+def get_cargos_cadastrados():
+    conn = sqlite3.connect(DB_FILE)
+    df = pd.read_sql_query("SELECT DISTINCT funcao FROM colaboradores WHERE funcao IS NOT NULL AND funcao != '' ORDER BY funcao", conn)
+    conn.close()
+    return df['funcao'].tolist()
+
+def obter_valor_coluna(row, chaves_possiveis, valor_padrao=""):
+    for coluna in row.index:
+        coluna_limpa = str(coluna).strip().lower()
+        for chave in chaves_possiveis:
+            if chave.lower() in coluna_limpa or coluna_limpa == chave.lower():
+                val = row[coluna]
+                if pd.notna(val) and str(val).strip() not in ["", "None", "nan"]:
+                    return val
+    return valor_padrao
+
+filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
+
+# ---------------------------------------------------------
+# BARRA LATERAL
+# ---------------------------------------------------------
+st.sidebar.markdown("## 🏢 Painel da Empresa")
 st.sidebar.write(f"Logado como: **{st.session_state.email_usuario}**")
 
 if st.sidebar.button("Sair / Trocar de Conta"):
@@ -86,6 +309,431 @@ if st.sidebar.button("Sair / Trocar de Conta"):
     st.session_state.email_usuario = ""
     st.rerun()
 
-# Exemplo de conteúdo do seu sistema principal
-st.title("Painel Principal - Gestão de Filiais")
-st.write("Bem-vindo ao sistema! Aqui fica o restante das suas telas e funcionalidades.")
+st.sidebar.markdown("---")
+
+logo_file = st.sidebar.file_uploader("Enviar Logo da Empresa", type=["png", "jpg", "jpeg"])
+if logo_file is not None:
+    image = Image.open(logo_file)
+    st.sidebar.image(image, use_column_width=True)
+
+st.sidebar.markdown("---")
+st.sidebar.title("📌 Menu Principal")
+menu = st.sidebar.radio("Selecione o módulo:", [
+    "📊 Dashboard / Consulta",
+    "➕ Novo Colaborador / Admissão",
+    "✏️ Editar Cadastro do Colaborador",
+    "📋 Controle de ASO e Documentos",
+    "🔄 Transferência entre Filiais",
+    "📜 Histórico de Alterações",
+    "💳 Pedido Saldo Alimentação",
+    "🏢 Cadastro de Filiais",
+    "📥 Importar Excel por Filial",
+    "📤 Exportar Dados"
+])
+
+# ---------------------------------------------------------
+# MÓDULO 1: DASHBOARD (PAINEL DE GESTÃO)
+# ---------------------------------------------------------
+if menu == "📊 Dashboard / Consulta":
+    st.title("📊 Painel de Gestão")
+    
+    conn = sqlite3.connect(DB_FILE)
+    query = '''
+        SELECT c.id, c.matricula, c.nome, c.funcao as "Cargo / Função", c.cpf, c.rg, c.cnpj_empresa,
+               f.nome as filial, c.data_nascimento, c.data_contratacao,
+               c.data_retorno_folga, c.intervalo_folga_dias, c.proxima_folga, c.motivo_retorno as "Tipo Retorno",
+               c.he_50, c.he_100, c.saldo_cartao_alimentacao, c.tipo_usuario_va as "Tipo de Usuário",
+               c.status_solicitacao_va as "Status Cartão", c.status_aso, c.doc_pessoais, c.doc_preadmissionais, c.doc_admissionais
+        FROM colaboradores c
+        LEFT JOIN filiais f ON c.filial_id = f.id
+    '''
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
+    if not df.empty:
+        opcoes_filiais_painel = ["Todas as Filiais"] + sorted(df['filial'].dropna().unique().tolist())
+        filial_escolhida_painel = st.selectbox("🏢 Selecione a Filial para Visualização:", opcoes_filiais_painel)
+        
+        if filial_escolhida_painel != "Todas as Filiais":
+            df = df[df['filial'] == filial_escolhida_painel]
+    else:
+        filial_escolhida_painel = "Todas as Filiais"
+
+    st.markdown("---")
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Colaboradores", len(df))
+    m2.metric("ASOs Prontos", len(df[df['status_aso'] == 'ASO Pronto']) if not df.empty else 0)
+    m3.metric("Total HE 50% (h)", df['he_50'].sum() if not df.empty else 0)
+    m4.metric("Total HE 100% (h)", df['he_100'].sum() if not df.empty else 0)
+
+    st.markdown("---")
+
+    if df.empty:
+        st.info("Nenhum colaborador cadastrado para esta seleção.")
+    else:
+        colunas_data = ['data_nascimento', 'data_contratacao', 'data_retorno_folga', 'proxima_folga']
+        for col in colunas_data:
+            if col in df.columns:
+                df[col] = df[col].apply(formatar_data_br)
+
+        if 'cpf' in df.columns:
+            df['cpf'] = df['cpf'].apply(formatar_cpf)
+        if 'cnpj_empresa' in df.columns:
+            df['cnpj_empresa'] = df['cnpj_empresa'].apply(formatar_cnpj)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            filtro_status_aso = st.multiselect("Filtrar por Status ASO:", options=df['status_aso'].dropna().unique())
+        with col2:
+            filtro_cargo = st.multiselect("Filtrar por Cargo / Função:", options=df['Cargo / Função'].dropna().unique())
+
+        df_filtered = df.copy()
+        if filtro_status_aso:
+            df_filtered = df_filtered[df_filtered['status_aso'].isin(filtro_status_aso)]
+        if filtro_cargo:
+            df_filtered = df_filtered[df_filtered['Cargo / Função'].isin(filtro_cargo)]
+
+        st.subheader(f"Registros Exibidos ({len(df_filtered)})")
+        st.dataframe(df_filtered, use_container_width=True)
+
+# ---------------------------------------------------------
+# MÓDULO 2: NOVO COLABORADOR / ADMISSÃO
+# ---------------------------------------------------------
+elif menu == "➕ Novo Colaborador / Admissão":
+    st.title("➕ Admissão de Novo Colaborador")
+    
+    if not filiais_nome_para_id:
+        st.warning("⚠️ Cadastre pelo menos uma filial antes de adicionar colaboradores.")
+    else:
+        st.subheader("1. Informações Pessoais, Cargo / Função e Empresa")
+        c_fil, c1, c2 = st.columns(3)
+        filial_nome = c_fil.selectbox("Filial *", options=list(filiais_nome_para_id.keys()))
+        matricula = c1.text_input("Matrícula *")
+        nome = c2.text_input("Nome Completo *")
+
+        c3, c4, c5 = st.columns(3)
+        cargos_existentes = get_cargos_cadastrados()
+        cargo_sel = c3.selectbox("Selecionar Cargo / Função Existente:", ["-- Novo Cargo / Função --"] + cargos_existentes)
+        
+        if cargo_sel == "-- Novo Cargo / Função --":
+            cargo = c3.text_input("Digite o Novo Cargo / Função *")
+        else:
+            cargo = cargo_sel
+
+        cpf = c4.text_input("CPF (somente números ou formatado)")
+        rg = c5.text_input("RG")
+
+        c6, c7 = st.columns(2)
+        cnpj_empresa = c6.text_input("CNPJ da Empresa (somente números ou formatado)")
+        data_nascimento = c7.date_input("Data de Nascimento", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+
+        st.subheader("2. Dados Contratuais e Afastamento / Retorno")
+        d1, d2, d3, d4 = st.columns(4)
+        data_contratacao = d1.date_input("Data de Contratação", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+        motivo_retorno = d2.selectbox("Motivo do Retorno", ["Folga", "Férias", "Recesso"])
+        data_retorno_folga = d3.date_input("Data Retorno (Folga/Férias/Recesso)", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+        intervalo_folga = d4.selectbox("Cálculo Próxima Previsão (Dias)", [30, 60, 90])
+
+        proxima_folga_calc = calcular_proxima_folga(data_retorno_folga, intervalo_folga)
+        st.success(f"💡 **Previsão Exata da Próxima Previsão ({intervalo_folga} dias a partir de {formatar_data_br(data_retorno_folga)}):** {formatar_data_br(proxima_folga_calc)}")
+
+        st.subheader("3. Saldos e Benefícios")
+        s1, s2, s3, s4, s5 = st.columns(5)
+        he_50 = s1.number_input("Horas Extras 50% (Horas)", min_value=0.0, step=0.5)
+        he_100 = s2.number_input("Horas Extras 100% (Horas)", min_value=0.0, step=0.5)
+        saldo_va = s3.number_input("Saldo Cartão Alimentação Inicial (R$)", min_value=0.0, step=10.0)
+        status_sol_va = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo", "Saldo Solicitado"])
+        tipo_usuario_va = s5.selectbox("Tipo de Usuário (Alimentação)", ["Novo Usuário", "Já Usuário"], index=0)
+
+        st.subheader("4. Controle de ASO e Documentos")
+        e1, e2 = st.columns(2)
+        status_aso = e1.selectbox("Status ASO", ["Procurando Clínica", "Exame Agendado", "Aguardando Resultado", "ASO Pronto"])
+        doc_pessoais = e2.selectbox("Documentos Pessoais", ["Pendente", "Entregue", "Em Análise"])
+        
+        e3, e4 = st.columns(2)
+        doc_preadmissionais = e3.selectbox("Documentos Pré-Admissionais", ["Pendente", "Entregue", "Em Análise"])
+        doc_admissionais = e4.selectbox("Documentos Admissionais", ["Pendente", "Entregue", "Concluído"])
+
+        if st.button("💾 Finalizar Cadastro"):
+            if not matricula or not nome:
+                st.error("Preencha os campos obrigatórios (Matrícula e Nome).")
+            else:
+                cpf_formatado = formatar_cpf(cpf)
+                cnpj_formatado = formatar_cnpj(cnpj_empresa)
+                try:
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute('''
+                        INSERT INTO colaboradores (
+                            matricula, nome, cpf, rg, funcao, cnpj_empresa, filial_id,
+                            data_nascimento, data_contratacao, data_retorno_folga,
+                            intervalo_folga_dias, proxima_folga, motivo_retorno, he_50, he_100,
+                            saldo_cartao_alimentacao, status_solicitacao_va, tipo_usuario_va, status_aso, doc_pessoais,
+                            doc_preadmissionais, doc_admissionais
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        matricula, nome, cpf_formatado, rg, cargo, cnpj_formatado,
+                        filiais_nome_para_id[filial_nome], str(data_nascimento),
+                        str(data_contratacao), str(data_retorno_folga), intervalo_folga,
+                        str(proxima_folga_calc), motivo_retorno, he_50, he_100, saldo_va, status_sol_va, tipo_usuario_va,
+                        status_aso, doc_pessoais, doc_preadmissionais, doc_admissionais
+                    ))
+                    conn.commit()
+                    conn.close()
+                    
+                    registrar_historico(matricula, "Admissão Inicial", "-", f"Admitido na Filial {filial_nome} - Cargo/Função: {cargo}")
+                    st.success(f"Colaborador {nome} cadastrado com sucesso!")
+                except sqlite3.IntegrityError:
+                    st.error("Erro: Matrícula já cadastrada no sistema.")
+
+# ---------------------------------------------------------
+# MÓDULO 3: EDITAR CADASTRO COMPLETO
+# ---------------------------------------------------------
+elif menu == "✏️ Editar Cadastro do Colaborador":
+    st.title("✏️ Editar Cadastro Completo do Colaborador")
+    
+    conn = sqlite3.connect(DB_FILE)
+    df_colab = pd.read_sql_query('''
+        SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial
+        FROM colaboradores c
+        LEFT JOIN filiais f ON c.filial_id = f.id
+        ORDER BY c.nome
+    ''', conn)
+    conn.close()
+
+    if df_colab.empty:
+        st.info("Nenhum colaborador cadastrado.")
+    else:
+        st.subheader("🔍 Filtre para localizar o colaborador facilmente")
+        f1, f2 = st.columns(2)
+        filtro_filial_edit = f1.multiselect("Filtrar por Filial:", options=df_colab['filial'].dropna().unique())
+        filtro_cargo_edit = f2.multiselect("Filtrar por Cargo / Função:", options=df_colab['cargo'].dropna().unique())
+
+        df_edit_filtered = df_colab.copy()
+        if filtro_filial_edit:
+            df_edit_filtered = df_edit_filtered[df_edit_filtered['filial'].isin(filtro_filial_edit)]
+        if filtro_cargo_edit:
+            df_edit_filtered = df_edit_filtered[df_edit_filtered['cargo'].isin(filtro_cargo_edit)]
+
+        opcoes_colab = df_edit_filtered['matricula'] + " - " + df_edit_filtered['nome'] + " (Cargo/Função: " + df_edit_filtered['cargo'].fillna('Sem Registro') + ")"
+        colab_selecionado = st.selectbox("Selecione o Colaborador para Editar:", opcoes_colab)
+        
+        if colab_selecionado:
+            matricula_sel = colab_selecionado.split(" - ")[0]
+            
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("SELECT * FROM colaboradores WHERE matricula = ?", (matricula_sel,))
+            dados = c.fetchone()
+            conn.close()
+
+            if dados:
+                tab_edit, tab_delete = st.tabs(["✏️ Alterar Todas as Informações", "🗑️ Excluir Registros"])
+                
+                with tab_edit:
+                    st.subheader("1. Identificação, Cargo / Função e Dados Pessoais")
+                    u1, u2, u3 = st.columns(3)
+                    mat_e = u1.text_input("Matrícula *", value=dados[1])
+                    nome_e = u2.text_input("Nome Completo *", value=dados[2])
+                    cargo_e = u3.text_input("Cargo / Função *", value=dados[5] or "")
+
+                    u4, u5, u6 = st.columns(3)
+                    cpf_e = u4.text_input("CPF (com pontuação BR)", value=formatar_cpf(dados[3]))
+                    rg_e = u5.text_input("RG", value=dados[4] or "")
+                    cnpj_e = u6.text_input("CNPJ Empresa (com pontuação BR)", value=formatar_cnpj(dados[6]))
+
+                    u7, u8 = st.columns(2)
+                    filial_atual_nome = filiais_id_para_nome.get(dados[7], list(filiais_nome_para_id.keys())[0] if filiais_nome_para_id else "")
+                    filial_idx = list(filiais_nome_para_id.keys()).index(filial_atual_nome) if filial_atual_nome in filiais_nome_para_id else 0
+                    filial_e = u7.selectbox("Filial", options=list(filiais_nome_para_id.keys()), index=filial_idx)
+                    
+                    dt_nasc_val = parse_date_para_input(dados[8])
+                    dt_nasc_e = u8.date_input("Data de Nascimento", value=dt_nasc_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+
+                    st.subheader("2. Dados Contratuais e Retorno de Folga / Férias / Recesso")
+                    d1, d2, d3, d4 = st.columns(4)
+                    dt_contr_val = parse_date_para_input(dados[9])
+                    dt_ret_val = parse_date_para_input(dados[10])
+                    
+                    data_contratacao_e = d1.date_input("Data de Contratação", value=dt_contr_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+                    
+                    motivo_atual = dados[21] if len(dados) > 21 and dados[21] in ["Folga", "Férias", "Recesso"] else "Folga"
+                    motivo_idx = ["Folga", "Férias", "Recesso"].index(motivo_atual)
+                    motivo_retorno_e = d2.selectbox("Motivo do Retorno", ["Folga", "Férias", "Recesso"], index=motivo_idx)
+
+                    data_retorno_folga_e = d3.date_input("Data Retorno de Folga/Férias/Recesso", value=dt_ret_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+                    
+                    inter_val = int(dados[11]) if dados[11] in [30, 60, 90] else 30
+                    inter_idx = [30, 60, 90].index(inter_val)
+                    intervalo_folga_e = d4.selectbox("Cálculo Próxima Previsão (Dias)", [30, 60, 90], index=inter_idx)
+
+                    proxima_folga_calc_e = calcular_proxima_folga(data_retorno_folga_e, intervalo_folga_e)
+                    st.success(f"💡 **Previsão Exata Recalculada ({intervalo_folga_e} dias a partir de {formatar_data_br(data_retorno_folga_e)}):** {formatar_data_br(proxima_folga_calc_e)}")
+
+                    st.subheader("3. Horas Extras e Cartão Alimentação")
+                    s1, s2, s3, s4, s5 = st.columns(5)
+                    he_50_e = s1.number_input("Horas Extras 50%", value=float(dados[13] or 0.0), step=0.5)
+                    he_100_e = s2.number_input("Horas Extras 100%", value=float(dados[14] or 0.0), step=0.5)
+                    saldo_va_e = s3.number_input("Saldo Cartão Alimentação Padrão (R$)", value=float(dados[15] or 0.0), step=10.0)
+                    
+                    status_sol_atual = dados[22] if len(dados) > 22 and dados[22] in ["Normal / Atualizado", "Solicitar Saldo", "Saldo Solicitado"] else "Normal / Atualizado"
+                    status_sol_idx = ["Normal / Atualizado", "Solicitar Saldo", "Saldo Solicitado"].index(status_sol_atual)
+                    status_sol_va_e = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo", "Saldo Solicitado"], index=status_sol_idx)
+
+                    tipo_va_atual = dados[20] if len(dados) > 20 and dados[20] in ["Novo Usuário", "Já Usuário"] else "Já Usuário"
+                    tipo_va_idx = ["Novo Usuário", "Já Usuário"].index(tipo_va_atual)
+                    tipo_usuario_va_e = s5.selectbox("Tipo de Usuário (Alimentação)", ["Novo Usuário", "Já Usuário"], index=tipo_va_idx)
+
+                    st.subheader("4. Status de ASO e Documentação")
+                    e1, e2 = st.columns(2)
+                    status_aso_opts = ["Procurando Clínica", "Exame Agendado", "Aguardando Resultado", "ASO Pronto"]
+                    aso_idx = status_aso_opts.index(dados[16]) if dados[16] in status_aso_opts else 0
+                    status_aso_e = e1.selectbox("Status ASO", status_aso_opts, index=aso_idx)
+
+                    doc_opts = ["Pendente", "Entregue", "Em Análise", "Concluído"]
+                    p_idx = doc_opts.index(dados[17]) if dados[17] in doc_opts else 0
+                    doc_p_e = e2.selectbox("Documentos Pessoais", doc_opts, index=p_idx)
+
+                    e3, e4 = st.columns(2)
+                    pre_idx = doc_opts.index(dados[18]) if dados[18] in doc_opts else 0
+                    doc_pre_e = e3.selectbox("Documentos Pré-Admissionais", doc_opts, index=pre_idx)
+
+                    adm_idx = doc_opts.index(dados[19]) if dados[19] in doc_opts else 0
+                    doc_adm_e = e4.selectbox("Documentos Admissionais", doc_opts, index=adm_idx)
+
+                    if st.button("💾 Salvar Todas as Alterações"):
+                        cpf_salvar = formatar_cpf(cpf_e)
+                        cnpj_salvar = formatar_cnpj(cnpj_e)
+
+                        registrar_historico(matricula_sel, "Alteração de Cargo / Função", dados[5], cargo_e)
+                        registrar_historico(matricula_sel, "Alteração de Filial", filial_atual_nome, filial_e)
+                        registrar_historico(matricula_sel, "Alteração de ASO", dados[16], status_aso_e)
+                        registrar_historico(matricula_sel, "Status Cartão Alimentação", status_sol_atual, status_sol_va_e)
+
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute('''
+                            UPDATE colaboradores
+                            SET matricula = ?, nome = ?, cpf = ?, rg = ?, funcao = ?, cnpj_empresa = ?,
+                                filial_id = ?, data_nascimento = ?, data_contratacao = ?, data_retorno_folga = ?,
+                                intervalo_folga_dias = ?, proxima_folga = ?, motivo_retorno = ?, he_50 = ?, he_100 = ?,
+                                saldo_cartao_alimentacao = ?, status_solicitacao_va = ?, status_aso = ?, doc_pessoais = ?,
+                                doc_preadmissionais = ?, doc_admissionais = ?, tipo_usuario_va = ?
+                            WHERE matricula = ?
+                        ''', (
+                            mat_e, nome_e, cpf_salvar, rg_e, cargo_e, cnpj_salvar,
+                            filiais_nome_para_id[filial_e], str(dt_nasc_e), str(data_contratacao_e),
+                            str(data_retorno_folga_e), intervalo_folga_e, str(proxima_folga_calc_e),
+                            motivo_retorno_e, he_50_e, he_100_e, saldo_va_e, status_sol_va_e, status_aso_e, doc_p_e, doc_pre_e, doc_adm_e,
+                            tipo_usuario_va_e, matricula_sel
+                        ))
+                        conn.commit()
+                        conn.close()
+                        st.success("Cadastro atualizado com sucesso!")
+                        st.rerun()
+
+                with tab_delete:
+                    st.warning(f"⚠️ Você está prestes a excluir **{dados[2]}** (Matrícula {dados[1]}).")
+                    confirma = st.checkbox("Confirmo que desejo excluir definitivamente.")
+                    if st.button("🗑️ Confirmar Exclusão", type="primary"):
+                        if confirma:
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            c.execute("DELETE FROM colaboradores WHERE matricula = ?", (matricula_sel,))
+                            c.execute("DELETE FROM saldos_alimentacao_mensal WHERE colaborador_matricula = ?", (matricula_sel,))
+                            conn.commit()
+                            conn.close()
+                            st.success("Colaborador excluído!")
+                            st.rerun()
+
+# ---------------------------------------------------------
+# MÓDULO HISTÓRICO DE ALTERAÇÕES
+# ---------------------------------------------------------
+elif menu == "📜 Histórico de Alterações":
+    st.title("📜 Histórico Geral de Alterações")
+    st.write("Acompanhe todas as mudanças de cargo/função, transferências de filial e alterações de status efetuadas no sistema.")
+
+    conn = sqlite3.connect(DB_FILE)
+    df_hist = pd.read_sql_query('''
+        SELECT h.data_registro as "Data / Hora", c.nome as "Colaborador", h.colaborador_matricula as "Matrícula",
+               h.tipo_alteracao as "Tipo de Alteração", h.valor_antigo as "De (Antigo)", h.valor_novo as "Para (Novo)"
+        FROM historico_colaboradores h
+        LEFT JOIN colaboradores c ON h.colaborador_matricula = c.matricula
+        ORDER BY h.data_registro DESC
+    ''', conn)
+    conn.close()
+
+    if df_hist.empty:
+        st.info("Nenhum histórico registrado até o momento.")
+    else:
+        filtro_mat = st.multiselect("Filtrar por Colaborador:", options=df_hist['Colaborador'].dropna().unique())
+        df_h_filtered = df_hist.copy()
+        if filtro_mat:
+            df_h_filtered = df_h_filtered[df_h_filtered['Colaborador'].isin(filtro_mat)]
+        
+        st.dataframe(df_h_filtered, use_container_width=True)
+
+# ---------------------------------------------------------
+# MÓDULO 4: CONTROLE EXCLUSIVO DE ASO E DOCUMENTOS
+# ---------------------------------------------------------
+elif menu == "📋 Controle de ASO e Documentos":
+    st.title("📋 Controle Exclusivo de ASO e Documentos")
+    
+    conn = sqlite3.connect(DB_FILE)
+    df_aso = pd.read_sql_query('''
+        SELECT c.matricula, c.nome, c.funcao as "Cargo / Função", f.nome as filial, c.status_aso, 
+               c.doc_pessoais, c.doc_preadmissionais, c.doc_admissionais
+        FROM colaboradores c
+        LEFT JOIN filiais f ON c.filial_id = f.id
+        ORDER BY c.nome
+    ''', conn)
+    conn.close()
+
+    if df_aso.empty:
+        st.info("Nenhum colaborador cadastrado.")
+    else:
+        st.subheader("1. Atualização Rápida de Status")
+        opcoes_aso = df_aso['matricula'] + " - " + df_aso['nome']
+        colab_aso_sel = st.selectbox("Selecione o Colaborador:", opcoes_aso)
+
+        if colab_aso_sel:
+            mat_aso = colab_aso_sel.split(" - ")[0]
+            
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("SELECT status_aso, doc_pessoais, doc_preadmissionais, doc_admissionais FROM colaboradores WHERE matricula = ?", (mat_aso,))
+            r_aso = c.fetchone()
+            conn.close()
+
+            st.markdown("---")
+            a1, a2 = st.columns(2)
+            
+            status_aso_opts = ["Procurando Clínica", "Exame Agendado", "Aguardando Resultado", "ASO Pronto"]
+            aso_idx = status_aso_opts.index(r_aso[0]) if r_aso[0] in status_aso_opts else 0
+            nov_aso = a1.selectbox("Status ASO", status_aso_opts, index=aso_idx)
+
+            doc_opts = ["Pendente", "Entregue", "Em Análise", "Concluído"]
+            p_idx = doc_opts.index(r_aso[1]) if r_aso[1] in doc_opts else 0
+            nov_doc_p = a2.selectbox("Documentos Pessoais", doc_opts, index=p_idx)
+
+            a3, a4 = st.columns(2)
+            pre_idx = doc_opts.index(r_aso[2]) if r_aso[2] in doc_opts else 0
+            nov_doc_pre = a3.selectbox("Documentos Pré-Admissionais", doc_opts, index=pre_idx)
+
+            adm_idx = doc_opts.index(r_aso[3]) if r_aso[3] in doc_opts else 0
+            nov_doc_adm = a4.selectbox("Documentos Admissionais", doc_opts, index=adm_idx)
+
+            if st.button("💾 Salvar Status ASO / Documentos"):
+                registrar_historico(mat_aso, "Alteração de Status ASO", r_aso[0], nov_aso)
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute('''
+                    UPDATE colaboradores 
+                    SET status_aso = ?, doc_pessoais = ?, doc_preadmissionais = ?, doc_admissionais = ?
+                    WHERE matricula = ?
+                ''', (nov_aso, nov_doc_p, nov_doc_pre, nov_doc_adm, mat_aso))
+                conn.commit()
+                conn.close()
+                st.success("Status atualizado com sucesso!")
+                st.rerun()
