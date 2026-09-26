@@ -174,29 +174,6 @@ def init_db():
             FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula)
         )
     ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS saldos_alimentacao_mensal (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            colaborador_matricula TEXT NOT NULL,
-            mes TEXT NOT NULL,
-            ano INTEGER NOT NULL,
-            saldo REAL DEFAULT 0,
-            tipo_usuario TEXT DEFAULT 'Já Usuário',
-            data_atualizacao DATETIME,
-            UNIQUE(colaborador_matricula, mes, ano),
-            FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula)
-        )
-    ''')
-    
-    try:
-        c.execute("ALTER TABLE saldos_alimentacao_mensal ADD COLUMN tipo_usuario TEXT DEFAULT 'Já Usuário'")
-    except Exception:
-        pass
-    try:
-        c.execute("ALTER TABLE saldos_alimentacao_mensal ADD COLUMN data_atualizacao DATETIME")
-    except Exception:
-        pass
-
     conn.commit()
     conn.close()
 
@@ -292,7 +269,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# BARRA LATERAL (MENU PRINCIPAL ATUALIZADO)
+# BARRA LATERAL (MENU PRINCIPAL COMPLETO)
 # ---------------------------------------------------------
 st.sidebar.markdown("## 🏢 Painel da Empresa")
 st.sidebar.write(f"Logado como: **{st.session_state.email_usuario}**")
@@ -318,6 +295,7 @@ menu = st.sidebar.radio("Selecione o módulo:", [
     "✏️ Editar Cadastro do Colaborador",
     "🏢 Cadastro de Filiais",
     "🔄 Transferência entre Filiais",
+    "💳 Solicitar Saldo Cartão Alimentação",
     "📥 Importar Excel por Filial",
     "📤 Exportar Dados",
     "📋 Controle de ASO e Documentos",
@@ -436,7 +414,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
         he_50 = s1.number_input("Horas Extras 50% (Horas)", min_value=0.0, step=0.5)
         he_100 = s2.number_input("Horas Extras 100% (Horas)", min_value=0.0, step=0.5)
         saldo_va = s3.number_input("Saldo Cartão Alimentação Inicial (R$)", min_value=0.0, step=10.0)
-        status_sol_va = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo", "Saldo Solicitado"])
+        status_sol_va = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"])
         tipo_usuario_va = s5.selectbox("Tipo de Usuário (Alimentação)", ["Novo Usuário", "Já Usuário"], index=0)
 
         st.subheader("4. Controle de ASO e Documentos")
@@ -570,9 +548,9 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                     he_100_e = s2.number_input("Horas Extras 100%", value=float(dados[14] or 0.0), step=0.5)
                     saldo_va_e = s3.number_input("Saldo Cartão Alimentação Padrão (R$)", value=float(dados[15] or 0.0), step=10.0)
                     
-                    status_sol_atual = dados[22] if len(dados) > 22 and dados[22] in ["Normal / Atualizado", "Solicitar Saldo", "Saldo Solicitado"] else "Normal / Atualizado"
-                    status_sol_idx = ["Normal / Atualizado", "Solicitar Saldo", "Saldo Solicitado"].index(status_sol_atual)
-                    status_sol_va_e = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo", "Saldo Solicitado"], index=status_sol_idx)
+                    status_sol_atual = dados[22] if len(dados) > 22 and dados[22] in ["Normal / Atualizado", "Solicitar Saldo"] else "Normal / Atualizado"
+                    status_sol_idx = ["Normal / Atualizado", "Solicitar Saldo"].index(status_sol_atual)
+                    status_sol_va_e = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"], index=status_sol_idx)
 
                     tipo_va_atual = dados[20] if len(dados) > 20 and dados[20] in ["Novo Usuário", "Já Usuário"] else "Já Usuário"
                     tipo_va_idx = ["Novo Usuário", "Já Usuário"].index(tipo_va_atual)
@@ -634,21 +612,21 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             conn = sqlite3.connect(DB_FILE)
                             c = conn.cursor()
                             c.execute("DELETE FROM colaboradores WHERE matricula = ?", (matricula_sel,))
-                            c.execute("DELETE FROM saldos_alimentacao_mensal WHERE colaborador_matricula = ?", (matricula_sel,))
                             conn.commit()
                             conn.close()
                             st.success("Colaborador excluído!")
                             st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 4: CADASTRO DE FILIAIS
+# MÓDULO 4: CADASTRO DE FILIAIS (COM OPÇÃO DE EDIÇÃO E EXCLUSÃO)
 # ---------------------------------------------------------
 elif menu == "🏢 Cadastro de Filiais":
     st.title("🏢 Gestão e Cadastro de Filiais")
     
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Nova Filial")
+    tab_nova, tab_gerenciar = st.tabs(["➕ Cadastrar Nova Filial", "✏️ Editar / Excluir Filial"])
+    
+    with tab_nova:
+        st.subheader("Adicionar Nova Filial")
         nome_filial = st.text_input("Nome da Filial / Unidade *")
         cnpj_filial = st.text_input("CNPJ da Filial (Opcional)")
         
@@ -667,17 +645,49 @@ elif menu == "🏢 Cadastro de Filiais":
                 except sqlite3.IntegrityError:
                     st.error("Esta filial já está cadastrada.")
 
-    with c2:
-        st.subheader("Filiais Cadastradas")
+    with tab_gerenciar:
+        st.subheader("Gerenciar Filiais Existentes")
         conn = sqlite3.connect(DB_FILE)
-        df_filiais = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais", conn)
+        df_filiais = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais ORDER BY nome", conn)
         conn.close()
         
         if df_filiais.empty:
             st.info("Nenhuma filial cadastrada.")
         else:
-            df_filiais['cnpj'] = df_filiais['cnpj'].apply(formatar_cnpj)
-            st.dataframe(df_filiais, use_container_width=True)
+            opcoes_filiais_gestao = df_filiais['nome'].tolist()
+            filial_selecionada_edit = st.selectbox("Selecione a Filial para Editar/Excluir:", options=opcoes_filiais_gestao)
+            
+            if filial_selecionada_edit:
+                filial_row = df_filiais[df_filiais['nome'] == filial_selecionada_edit].iloc[0]
+                filial_id_sel = filial_row['id']
+                
+                novo_nome_filial = st.text_input("Nome da Filial", value=filial_row['nome'])
+                novo_cnpj_filial = st.text_input("CNPJ da Filial", value=formatar_cnpj(filial_row['cnpj']))
+                
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    if st.button("💾 Salvar Alterações da Filial"):
+                        try:
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            c.execute("UPDATE filiais SET nome = ?, cnpj = ? WHERE id = ?", (novo_nome_filial, formatar_cnpj(novo_cnpj_filial), filial_id_sel))
+                            conn.commit()
+                            conn.close()
+                            st.success("Filial atualizada com sucesso!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("Já existe outra filial com este nome.")
+                with col_b2:
+                    confirma_del_filial = st.checkbox("Confirmo exclusão desta filial")
+                    if st.button("🗑️ Excluir Filial", type="primary"):
+                        if confirma_del_filial:
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            c.execute("DELETE FROM filiais WHERE id = ?", (filial_id_sel,))
+                            conn.commit()
+                            conn.close()
+                            st.success("Filial excluída com sucesso!")
+                            st.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 5: TRANSFERÊNCIA ENTRE FILIAIS
@@ -724,7 +734,62 @@ elif menu == "🔄 Transferência entre Filiais":
                     st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 6: IMPORTAR EXCEL POR FILIAL
+# MÓDULO 6: SOLICITAR SALDO CARTÃO ALIMENTAÇÃO
+# ---------------------------------------------------------
+elif menu == "💳 Solicitar Saldo Cartão Alimentação":
+    st.title("💳 Solicitar Saldo e Gerenciar Cartão Alimentação")
+    st.write("Gerencie rapidamente o saldo, tipo de usuário e altere o status para **Normal / Atualizado** ou **Solicitar Saldo**.")
+
+    conn = sqlite3.connect(DB_FILE)
+    df_va = pd.read_sql_query('''
+        SELECT c.matricula, c.nome, f.nome as filial, c.saldo_cartao_alimentacao, 
+               c.status_solicitacao_va, c.tipo_usuario_va
+        FROM colaboradores c
+        LEFT JOIN filiais f ON c.filial_id = f.id
+        ORDER BY c.nome
+    ''', conn)
+    conn.close()
+
+    if df_va.empty:
+        st.info("Nenhum colaborador cadastrado.")
+    else:
+        opcoes_va = df_va['matricula'] + " - " + df_va['nome'] + " (Status: " + df_va['status_solicitacao_va'].fillna('Normal / Atualizado') + ")"
+        colab_va_sel = st.selectbox("Selecione o Colaborador:", opcoes_va)
+
+        if colab_va_sel:
+            mat_va = colab_va_sel.split(" - ")[0]
+            colab_info = df_va[df_va['matricula'] == mat_va].iloc[0]
+
+            st.markdown("---")
+            v1, v2, v3 = st.columns(3)
+            
+            novo_saldo = v1.number_input("Saldo Cartão Alimentação (R$)", value=float(colab_info['saldo_cartao_alimentacao'] or 0.0), step=10.0)
+            
+            status_atual_va = colab_info['status_solicitacao_va'] if colab_info['status_solicitacao_va'] in ["Normal / Atualizado", "Solicitar Saldo"] else "Normal / Atualizado"
+            status_idx = ["Normal / Atualizado", "Solicitar Saldo"].index(status_atual_va)
+            novo_status_va = v2.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"], index=status_idx)
+
+            tipo_atual_va = colab_info['tipo_usuario_va'] if colab_info['tipo_usuario_va'] in ["Novo Usuário", "Já Usuário"] else "Já Usuário"
+            tipo_idx = ["Novo Usuário", "Já Usuário"].index(tipo_atual_va)
+            novo_tipo_va = v3.selectbox("Tipo de Usuário (Alimentação)", ["Novo Usuário", "Já Usuário"], index=tipo_idx)
+
+            if st.button("💾 Salvar Dados do Cartão Alimentação"):
+                registrar_historico(mat_va, "Status Cartão Alimentação", status_atual_va, novo_status_va)
+                
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute('''
+                    UPDATE colaboradores 
+                    SET saldo_cartao_alimentacao = ?, status_solicitacao_va = ?, tipo_usuario_va = ?
+                    WHERE matricula = ?
+                ''', (novo_saldo, novo_status_va, novo_tipo_va, mat_va))
+                conn.commit()
+                conn.close()
+                st.success("Informações do Cartão Alimentação atualizadas com sucesso!")
+                st.rerun()
+
+# ---------------------------------------------------------
+# MÓDULO 7: IMPORTAR EXCEL POR FILIAL
 # ---------------------------------------------------------
 elif menu == "📥 Importar Excel por Filial":
     st.title("📥 Importar Colaboradores via Excel por Filial")
@@ -781,7 +846,7 @@ elif menu == "📥 Importar Excel por Filial":
                 st.error(f"Erro ao ler o arquivo Excel: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 7: EXPORTAR DADOS
+# MÓDULO 8: EXPORTAR DADOS
 # ---------------------------------------------------------
 elif menu == "📤 Exportar Dados":
     st.title("📤 Exportar Dados do Sistema")
@@ -795,7 +860,7 @@ elif menu == "📤 Exportar Dados":
                c.data_contratacao as "Data Contratação", c.data_retorno_folga as "Data Retorno",
                c.intervalo_folga_dias as "Intervalo Dias", c.proxima_folga as "Próxima Previsão",
                c.he_50 as "HE 50%", c.he_100 as "HE 100%", c.saldo_cartao_alimentacao as "Saldo VA",
-               c.status_aso as "Status ASO"
+               c.status_aso as "Status ASO", c.status_solicitacao_va as "Status Cartão"
         FROM colaboradores c
         LEFT JOIN filiais f ON c.filial_id = f.id
     ''', conn)
@@ -817,7 +882,7 @@ elif menu == "📤 Exportar Dados":
         )
 
 # ---------------------------------------------------------
-# MÓDULO 8: CONTROLE EXCLUSIVO DE ASO E DOCUMENTOS
+# MÓDULO 9: CONTROLE EXCLUSIVO DE ASO E DOCUMENTOS
 # ---------------------------------------------------------
 elif menu == "📋 Controle de ASO e Documentos":
     st.title("📋 Controle Exclusivo de ASO e Documentos")
@@ -881,7 +946,7 @@ elif menu == "📋 Controle de ASO e Documentos":
                 st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 9: HISTÓRICO DE ALTERAÇÕES
+# MÓDULO 10: HISTÓRICO DE ALTERAÇÕES
 # ---------------------------------------------------------
 elif menu == "📜 Histórico de Alterações":
     st.title("📜 Histórico Geral de Alterações")
