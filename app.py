@@ -295,7 +295,7 @@ menu = st.sidebar.radio("Selecione o módulo:", [
     "✏️ Editar Cadastro do Colaborador",
     "🏢 Cadastro de Filiais",
     "🔄 Transferência entre Filiais",
-    "💳 Solicitar Saldo Cartão Alimentação",
+    "💳 Pedido Saldo Alimentação",
     "📥 Importar Excel por Filial",
     "📤 Exportar Dados",
     "📋 Controle de ASO e Documentos",
@@ -734,10 +734,10 @@ elif menu == "🔄 Transferência entre Filiais":
                     st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 6: SOLICITAR SALDO CARTÃO ALIMENTAÇÃO
+# MÓDULO 6: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
-elif menu == "💳 Solicitar Saldo Cartão Alimentação":
-    st.title("💳 Solicitar Saldo e Gerenciar Cartão Alimentação")
+elif menu == "💳 Pedido Saldo Alimentação":
+    st.title("💳 Pedido e Gestão de Saldo do Cartão Alimentação")
     st.write("Gerencie rapidamente o saldo, tipo de usuário e altere o status para **Normal / Atualizado** ou **Solicitar Saldo**.")
 
     conn = sqlite3.connect(DB_FILE)
