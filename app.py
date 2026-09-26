@@ -7,6 +7,7 @@ import re
 import random
 import smtplib
 from email.mime.text import MIMEText
+import io
 
 # Configuração inicial da página
 st.set_page_config(page_title="Sistema de Gestão RH", layout="wide", initial_sidebar_state="expanded")
@@ -291,7 +292,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# BARRA LATERAL
+# BARRA LATERAL (MENU PRINCIPAL ATUALIZADO)
 # ---------------------------------------------------------
 st.sidebar.markdown("## 🏢 Painel da Empresa")
 st.sidebar.write(f"Logado como: **{st.session_state.email_usuario}**")
@@ -315,6 +316,10 @@ menu = st.sidebar.radio("Selecione o módulo:", [
     "📊 Dashboard / Consulta",
     "➕ Novo Colaborador / Admissão",
     "✏️ Editar Cadastro do Colaborador",
+    "🏢 Cadastro de Filiais",
+    "🔄 Transferência entre Filiais",
+    "📥 Importar Excel por Filial",
+    "📤 Exportar Dados",
     "📋 Controle de ASO e Documentos",
     "📜 Histórico de Alterações"
 ])
@@ -636,34 +641,183 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO HISTÓRICO DE ALTERAÇÕES
+# MÓDULO 4: CADASTRO DE FILIAIS
 # ---------------------------------------------------------
-elif menu == "📜 Histórico de Alterações":
-    st.title("📜 Histórico Geral de Alterações")
-    st.write("Acompanhe todas as mudanças de cargo/função, transferências de filial e alterações de status efetuadas no sistema.")
+elif menu == "🏢 Cadastro de Filiais":
+    st.title("🏢 Gestão e Cadastro de Filiais")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("Nova Filial")
+        nome_filial = st.text_input("Nome da Filial / Unidade *")
+        cnpj_filial = st.text_input("CNPJ da Filial (Opcional)")
+        
+        if st.button("Cadastrar Filial"):
+            if not nome_filial:
+                st.error("Informe o nome da filial.")
+            else:
+                try:
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("INSERT INTO filiais (nome, cnpj) VALUES (?, ?)", (nome_filial, formatar_cnpj(cnpj_filial)))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Filial '{nome_filial}' cadastrada com sucesso!")
+                    st.rerun()
+                except sqlite3.IntegrityError:
+                    st.error("Esta filial já está cadastrada.")
 
+    with c2:
+        st.subheader("Filiais Cadastradas")
+        conn = sqlite3.connect(DB_FILE)
+        df_filiais = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais", conn)
+        conn.close()
+        
+        if df_filiais.empty:
+            st.info("Nenhuma filial cadastrada.")
+        else:
+            df_filiais['cnpj'] = df_filiais['cnpj'].apply(formatar_cnpj)
+            st.dataframe(df_filiais, use_container_width=True)
+
+# ---------------------------------------------------------
+# MÓDULO 5: TRANSFERÊNCIA ENTRE FILIAIS
+# ---------------------------------------------------------
+elif menu == "🔄 Transferência entre Filiais":
+    st.title("🔄 Transferência de Colaborador entre Filiais")
+    
     conn = sqlite3.connect(DB_FILE)
-    df_hist = pd.read_sql_query('''
-        SELECT h.data_registro as "Data / Hora", c.nome as "Colaborador", h.colaborador_matricula as "Matrícula",
-               h.tipo_alteracao as "Tipo de Alteração", h.valor_antigo as "De (Antigo)", h.valor_novo as "Para (Novo)"
-        FROM historico_colaboradores h
-        LEFT JOIN colaboradores c ON h.colaborador_matricula = c.matricula
-        ORDER BY h.data_registro DESC
+    df_colab = pd.read_sql_query('''
+        SELECT c.matricula, c.nome, f.nome as filial
+        FROM colaboradores c
+        LEFT JOIN filiais f ON c.filial_id = f.id
+        ORDER BY c.nome
     ''', conn)
     conn.close()
 
-    if df_hist.empty:
-        st.info("Nenhum histórico registrado até o momento.")
+    if df_colab.empty:
+        st.info("Nenhum colaborador cadastrado para transferência.")
+    elif not filiais_nome_para_id or len(filiais_nome_para_id) < 2:
+        st.warning("⚠️ É necessário ter pelo menos duas filiais cadastradas para realizar transferências.")
     else:
-        filtro_mat = st.multiselect("Filtrar por Colaborador:", options=df_hist['Colaborador'].dropna().unique())
-        df_h_filtered = df_hist.copy()
-        if filtro_mat:
-            df_h_filtered = df_h_filtered[df_h_filtered['Colaborador'].isin(filtro_mat)]
+        opcoes_c = df_colab['matricula'] + " - " + df_colab['nome'] + " (Atual: " + df_colab['filial'].fillna('Nenhuma') + ")"
+        colab_sel = st.selectbox("Selecione o Colaborador:", opcoes_c)
         
-        st.dataframe(df_h_filtered, use_container_width=True)
+        if colab_sel:
+            matricula_transf = colab_sel.split(" - ")[0]
+            filial_atual_str = colab_sel.split("(Atual: ")[1].replace(")", "")
+            
+            nova_filial_destino = st.selectbox("Selecione a Filial de Destino:", options=list(filiais_nome_para_id.keys()))
+            
+            if st.button("Confirmar Transferência"):
+                if filial_atual_str == nova_filial_destino:
+                    st.warning("O colaborador já pertence a esta filial.")
+                else:
+                    novo_id = filiais_nome_para_id[nova_filial_destino]
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("UPDATE colaboradores SET filial_id = ? WHERE matricula = ?", (novo_id, matricula_transf))
+                    conn.commit()
+                    conn.close()
+                    
+                    registrar_historico(matricula_transf, "Transferência de Filial", filial_atual_str, nova_filial_destino)
+                    st.success(f"Colaborador transferido com sucesso para a filial {nova_filial_destino}!")
+                    st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 4: CONTROLE EXCLUSIVO DE ASO E DOCUMENTOS
+# MÓDULO 6: IMPORTAR EXCEL POR FILIAL
+# ---------------------------------------------------------
+elif menu == "📥 Importar Excel por Filial":
+    st.title("📥 Importar Colaboradores via Excel por Filial")
+    st.write("Faça o upload de uma planilha Excel (`.xlsx`) contendo os dados dos colaboradores para uma filial específica.")
+    
+    if not filiais_nome_para_id:
+        st.warning("⚠️ Cadastre pelo menos uma filial antes de importar planilhas.")
+    else:
+        filial_import_nome = st.selectbox("Selecione a Filial de Destino da Importação:", options=list(filiais_nome_para_id.keys()))
+        
+        uploaded_file = st.file_uploader("Selecione o arquivo Excel", type=["xlsx", "xls"])
+        
+        if uploaded_file is not None:
+            try:
+                df_import = pd.read_excel(uploaded_file)
+                st.write("Prévia dos dados encontrados no arquivo:")
+                st.dataframe(df_import.head(), use_container_width=True)
+                
+                if st.button("Processar e Importar Dados"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    filial_id_val = filiais_nome_para_id[filial_import_nome]
+                    
+                    importados = 0
+                    erros = 0
+                    
+                    for _, row in df_import.iterrows():
+                        try:
+                            mat = str(row.get('matricula', row.get('Matrícula', '')))
+                            nom = str(row.get('nome', row.get('Nome', '')))
+                            if not mat or mat == 'nan' or not nom or nom == 'nan':
+                                continue
+                                
+                            c.execute('''
+                                INSERT OR IGNORE INTO colaboradores (
+                                    matricula, nome, funcao, filial_id, status_aso
+                                ) VALUES (?, ?, ?, ?, ?)
+                            ''', (
+                                mat, nom, 
+                                str(row.get('funcao', row.get('Cargo', 'Não Informado'))),
+                                filial_id_val, 'Procurando Clínica'
+                            ))
+                            if c.rowcount > 0:
+                                importados += 1
+                            else:
+                                erros += 1
+                        except Exception:
+                            erros += 1
+                            
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Importação concluída! {importados} registros inseridos com sucesso ({erros} ignorados/duplicados).")
+            except Exception as e:
+                st.error(f"Erro ao ler o arquivo Excel: {e}")
+
+# ---------------------------------------------------------
+# MÓDULO 7: EXPORTAR DADOS
+# ---------------------------------------------------------
+elif menu == "📤 Exportar Dados":
+    st.title("📤 Exportar Dados do Sistema")
+    st.write("Baixe as informações completas dos colaboradores e do painel para formato Excel.")
+    
+    conn = sqlite3.connect(DB_FILE)
+    df_export = pd.read_sql_query('''
+        SELECT c.matricula as "Matrícula", c.nome as "Nome", c.funcao as "Cargo / Função", 
+               c.cpf as "CPF", c.rg as "RG", c.cnpj_empresa as "CNPJ Empresa",
+               f.nome as "Filial", c.data_nascimento as "Data Nascimento", 
+               c.data_contratacao as "Data Contratação", c.data_retorno_folga as "Data Retorno",
+               c.intervalo_folga_dias as "Intervalo Dias", c.proxima_folga as "Próxima Previsão",
+               c.he_50 as "HE 50%", c.he_100 as "HE 100%", c.saldo_cartao_alimentacao as "Saldo VA",
+               c.status_aso as "Status ASO"
+        FROM colaboradores c
+        LEFT JOIN filiais f ON c.filial_id = f.id
+    ''', conn)
+    conn.close()
+
+    if df_export.empty:
+        st.info("Não há dados cadastrados para exportação.")
+    else:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_export.to_excel(writer, index=False, sheet_name='Colaboradores')
+        processed_data = output.getvalue()
+
+        st.download_button(
+            label="📥 Baixar Planilha Geral de Colaboradores (Excel)",
+            data=processed_data,
+            file_name=f"relatorio_rh_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+# ---------------------------------------------------------
+# MÓDULO 8: CONTROLE EXCLUSIVO DE ASO E DOCUMENTOS
 # ---------------------------------------------------------
 elif menu == "📋 Controle de ASO e Documentos":
     st.title("📋 Controle Exclusivo de ASO e Documentos")
@@ -725,3 +879,30 @@ elif menu == "📋 Controle de ASO e Documentos":
                 conn.close()
                 st.success("Status atualizado com sucesso!")
                 st.rerun()
+
+# ---------------------------------------------------------
+# MÓDULO 9: HISTÓRICO DE ALTERAÇÕES
+# ---------------------------------------------------------
+elif menu == "📜 Histórico de Alterações":
+    st.title("📜 Histórico Geral de Alterações")
+    st.write("Acompanhe todas as mudanças de cargo/função, transferências de filial e alterações de status efetuadas no sistema.")
+
+    conn = sqlite3.connect(DB_FILE)
+    df_hist = pd.read_sql_query('''
+        SELECT h.data_registro as "Data / Hora", c.nome as "Colaborador", h.colaborador_matricula as "Matrícula",
+               h.tipo_alteracao as "Tipo de Alteração", h.valor_antigo as "De (Antigo)", h.valor_novo as "Para (Novo)"
+        FROM historico_colaboradores h
+        LEFT JOIN colaboradores c ON h.colaborador_matricula = c.matricula
+        ORDER BY h.data_registro DESC
+    ''', conn)
+    conn.close()
+
+    if df_hist.empty:
+        st.info("Nenhum histórico registrado até o momento.")
+    else:
+        filtro_mat = st.multiselect("Filtrar por Colaborador:", options=df_hist['Colaborador'].dropna().unique())
+        df_h_filtered = df_hist.copy()
+        if filtro_mat:
+            df_h_filtered = df_h_filtered[df_h_filtered['Colaborador'].isin(filtro_mat)]
+        
+        st.dataframe(df_h_filtered, use_container_width=True)
