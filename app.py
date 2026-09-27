@@ -337,7 +337,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
         he_100 = s2.number_input("Horas Extras 100% (Horas)", min_value=0.0, step=0.5)
         saldo_va = s3.number_input("Saldo Cartão Alimentação Inicial (R$)", min_value=0.0, step=10.0)
         status_sol_va = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"])
-        tipo_usuario_va = s5.selectbox("Tipo de Usuário (Alimentação)", ["Novo Usuário", "Já Usuário"], index=0)
+        tipo_usuario_va = s5.selectbox("Tipo de Usuário (Alimentação)", ["Já Usuário", "Novo Usuário"], index=0)
 
         st.subheader("4. Controle de ASO e Documentos")
         e1, e2 = st.columns(2)
@@ -476,9 +476,10 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                     status_sol_idx = ["Normal / Atualizado", "Solicitar Saldo"].index(status_sol_atual)
                     status_sol_va_e = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"], index=status_sol_idx)
 
-                    tipo_va_atual = dados[20] if len(dados) > 20 and dados[20] in ["Novo Usuário", "Já Usuário"] else "Já Usuário"
-                    tipo_va_idx = ["Novo Usuário", "Já Usuário"].index(tipo_va_atual)
-                    tipo_usuario_va_e = s5.selectbox("Tipo de Usuário (Alimentação)", ["Novo Usuário", "Já Usuário"], index=tipo_va_idx)
+                    tipo_va_opts = ["Já Usuário", "Novo Usuário"]
+                    tipo_va_atual = dados[20] if len(dados) > 20 and dados[20] in tipo_va_opts else "Já Usuário"
+                    tipo_va_idx = tipo_va_opts.index(tipo_va_atual)
+                    tipo_usuario_va_e = s5.selectbox("Tipo de Usuário (Alimentação)", tipo_va_opts, index=tipo_va_idx)
 
                     st.subheader("4. Status de ASO e Documentação")
                     e1, e2 = st.columns(2)
@@ -662,7 +663,7 @@ elif menu == "🔄 Transferência entre Filiais":
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
     st.title("💳 Pedido e Gestão de Saldo do Cartão Alimentação")
-    st.write("Defina o mês de referência, selecione a filial e edite diretamente os dados na tabela abaixo.")
+    st.write("Defina o mês de referência, selecione a filial e edite diretamente os campos **Saldo** e **Tipo de Usuário** na tabela abaixo.")
 
     tab_lanc, tab_hist = st.tabs(["📋 Lançamento e Atualização por Filial", "📜 Histórico de Pedidos e Exportação"])
 
@@ -704,7 +705,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                 st.write(f"Editando dados para a filial **{filial_va_escolhida}** ({len(df_filial_edit)} colaboradores):")
                 
                 df_filial_edit['Editar Saldo (R$)'] = df_filial_edit['saldo_cartao_alimentacao'].astype(float)
-                df_filial_edit['Editar Tipo Usuário'] = df_filial_edit['tipo_usuario_va']
+                df_filial_edit['Editar Tipo Usuário'] = df_filial_edit['tipo_usuario_va'].fillna('Já Usuário')
                 
                 tabela_para_edicao = df_filial_edit[['cnpj_empresa', 'nome', 'cpf', 'Editar Saldo (R$)', 'Editar Tipo Usuário']].copy()
                 tabela_para_edicao.columns = ['CNPJ', 'Nome do Colaborador', 'CPF', 'Saldo', 'Tipo de Usuário']
@@ -716,7 +717,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         "Nome do Colaborador": st.column_config.TextColumn("Nome do Colaborador", disabled=True),
                         "CPF": st.column_config.TextColumn("CPF", disabled=True),
                         "Saldo": st.column_config.NumberColumn("Saldo (R$)", min_value=0.0, step=0.5, format="R$ %.2f"),
-                        "Tipo de Usuário": st.column_config.SelectboxColumn("Tipo de Usuário", options=["Novo Usuário", "Já Usuário"], required=True)
+                        "Tipo de Usuário": st.column_config.SelectboxColumn("Tipo de Usuário", options=["Já Usuário", "Novo Usuário"], required=True)
                     },
                     hide_index=True,
                     use_container_width=True
