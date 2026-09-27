@@ -259,10 +259,7 @@ if menu == "📊 Dashboard / Consulta":
         filial_escolhida_painel = "Todas as Filiais"
 
     st.markdown("---")
-
-    # Métrica simplificada conforme solicitado (apenas Total Colaboradores)
     st.metric("Total Colaboradores", len(df))
-
     st.markdown("---")
 
     if df.empty:
@@ -665,7 +662,7 @@ elif menu == "🔄 Transferência entre Filiais":
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
     st.title("💳 Pedido e Gestão de Saldo do Cartão Alimentação")
-    st.write("Defina o mês de referência e escolha se deseja editar um colaborador individualmente ou todos em lote.")
+    st.write("Defina o mês de referência, selecione a filial e edite diretamente os dados na tabela abaixo.")
 
     tab_lanc, tab_hist = st.tabs(["📋 Lançamento e Atualização por Filial", "📜 Histórico de Pedidos e Exportação"])
 
@@ -694,7 +691,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
             competencia_str = f"{mes_sel} / {ano_sel}"
 
             st.markdown("---")
-            st.subheader("2. Seleção de Filial e Modo de Edição")
+            st.subheader("2. Seleção de Filial")
             
             opcoes_filial_va = sorted(df_va_base['filial'].dropna().unique().tolist())
             filial_va_escolhida = st.selectbox("Selecione a Filial:", opcoes_filial_va)
@@ -704,108 +701,56 @@ elif menu == "💳 Pedido Saldo Alimentação":
             if df_filial_edit.empty:
                 st.warning("Nenhum colaborador encontrado nesta filial.")
             else:
-                modo_edicao_va = st.radio("Escolha o modo de edição:", ["👤 Selecionar Um Colaborador Específico", "👥 Todos os Colaboradores (Lote)"], horizontal=True)
+                st.write(f"Editando dados para a filial **{filial_va_escolhida}** ({len(df_filial_edit)} colaboradores):")
+                
+                df_filial_edit['Editar Saldo (R$)'] = df_filial_edit['saldo_cartao_alimentacao'].astype(float)
+                df_filial_edit['Editar Tipo Usuário'] = df_filial_edit['tipo_usuario_va']
+                
+                tabela_para_edicao = df_filial_edit[['cnpj_empresa', 'nome', 'cpf', 'Editar Saldo (R$)', 'Editar Tipo Usuário']].copy()
+                tabela_para_edicao.columns = ['CNPJ', 'Nome do Colaborador', 'CPF', 'Saldo', 'Tipo de Usuário']
+                
+                tabela_editada = st.data_editor(
+                    tabela_para_edicao,
+                    column_config={
+                        "CNPJ": st.column_config.TextColumn("CNPJ", disabled=True),
+                        "Nome do Colaborador": st.column_config.TextColumn("Nome do Colaborador", disabled=True),
+                        "CPF": st.column_config.TextColumn("CPF", disabled=True),
+                        "Saldo": st.column_config.NumberColumn("Saldo (R$)", min_value=0.0, step=0.5, format="R$ %.2f"),
+                        "Tipo de Usuário": st.column_config.SelectboxColumn("Tipo de Usuário", options=["Novo Usuário", "Já Usuário"], required=True)
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
 
-                if modo_edicao_va == "👤 Selecionar Um Colaborador Específico":
-                    opcoes_colab_va = df_filial_edit['matricula'] + " - " + df_filial_edit['nome']
-                    colab_escolhido_va = st.selectbox("Selecione o Colaborador:", opcoes_colab_va)
-
-                    if colab_escolhido_va:
-                        mat_colab_sel = colab_escolhido_va.split(" - ")[0]
-                        dados_colab_row = df_filial_edit[df_filial_edit['matricula'] == mat_colab_sel].iloc[0]
-
-                        st.write(f"Editando dados para: **{dados_colab_row['nome']}** (CNPJ: {dados_colab_row['cnpj_empresa']})")
-
-                        col_e1, col_e2 = st.columns(2)
-                        novo_saldo_individual = col_e1.number_input("Saldo (R$)", value=float(dados_colab_row['saldo_cartao_alimentacao']), min_value=0.0, step=0.5, format="R$ %.2f")
-                        
-                        tipo_atual_ind = dados_colab_row['tipo_usuario_va'] if dados_colab_row['tipo_usuario_va'] in ["Novo Usuário", "Já Usuário"] else "Já Usuário"
-                        idx_tipo = ["Novo Usuário", "Já Usuário"].index(tipo_atual_ind)
-                        novo_tipo_individual = col_e2.selectbox("Tipo de Usuário", ["Novo Usuário", "Já Usuário"], index=idx_tipo)
-
-                        if st.button("💾 Salvar Alteração do Colaborador"):
-                            conn = sqlite3.connect(DB_FILE)
-                            c = conn.cursor()
-                            
-                            # Atualiza cadastro base
-                            c.execute('''
-                                UPDATE colaboradores 
-                                SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
-                                WHERE matricula = ?
-                            ''', (novo_saldo_individual, novo_tipo_individual, mat_colab_sel))
-                            
-                            # Remove registro anterior do mesmo mês/filial/colaborador no histórico para evitar duplicatas, se houver, e insere novo
-                            c.execute("DELETE FROM historico_pedidos_va WHERE mes_ano = ? AND matricula = ?", (competencia_str, mat_colab_sel))
-                            c.execute('''
-                                INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, saldo, tipo_usuario, data_registro)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (competencia_str, filial_va_escolhida, mat_colab_sel, dados_colab_row['cnpj_empresa'], dados_colab_row['nome'], dados_colab_row['cpf'], novo_saldo_individual, novo_tipo_individual, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                            
-                            conn.commit()
-                            conn.close()
-                            st.success(f"Informações de {dados_colab_row['nome']} salvas com sucesso para {competencia_str}!")
-                            st.rerun()
-
-                else: # Modo Lote
-                    filtro_tipo_usuario = st.multiselect("Filtrar por Tipo de Usuário (Opcional):", ["Novo Usuário", "Já Usuário"], default=["Novo Usuário", "Já Usuário"])
+                if st.button("💾 Salvar e Registrar Pedido para esta Filial"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
                     
-                    df_lote_filtrado = df_filial_edit.copy()
-                    if filtro_tipo_usuario:
-                        df_lote_filtrado = df_lote_filtrado[df_lote_filtrado['tipo_usuario_va'].isin(filtro_tipo_usuario)]
-
-                    if df_lote_filtrado.empty:
-                        st.warning("Nenhum colaborador encontrado para os filtros selecionados.")
-                    else:
-                        st.write(f"Editando em lote para a filial **{filial_va_escolhida}** ({len(df_lote_filtrado)} colaboradores):")
+                    c.execute("DELETE FROM historico_pedidos_va WHERE mes_ano = ? AND filial_nome = ?", (competencia_str, filial_va_escolhida))
+                    
+                    for idx, row in tabela_editada.iterrows():
+                        mat_original = df_filial_edit.iloc[idx]['matricula']
+                        novo_saldo_val = float(row['Saldo'])
+                        novo_tipo_val = row['Tipo de Usuário']
+                        cnpj_val = row['CNPJ']
+                        nome_val = row['Nome do Colaborador']
+                        cpf_val = row['CPF']
                         
-                        df_lote_filtrado['Editar Saldo (R$)'] = df_lote_filtrado['saldo_cartao_alimentacao'].astype(float)
-                        df_lote_filtrado['Editar Tipo Usuário'] = df_lote_filtrado['tipo_usuario_va']
+                        c.execute('''
+                            UPDATE colaboradores 
+                            SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
+                            WHERE matricula = ?
+                        ''', (novo_saldo_val, novo_tipo_val, mat_original))
                         
-                        tabela_para_edicao = df_lote_filtrado[['cnpj_empresa', 'nome', 'cpf', 'Editar Saldo (R$)', 'Editar Tipo Usuário']].copy()
-                        tabela_para_edicao.columns = ['CNPJ', 'Nome do Colaborador', 'CPF', 'Saldo', 'Tipo de Usuário']
+                        c.execute('''
+                            INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, saldo, tipo_usuario, data_registro)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (competencia_str, filial_va_escolhida, mat_original, cnpj_val, nome_val, cpf_val, novo_saldo_val, novo_tipo_val, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                         
-                        tabela_editada = st.data_editor(
-                            tabela_para_edicao,
-                            column_config={
-                                "CNPJ": st.column_config.TextColumn("CNPJ", disabled=True),
-                                "Nome do Colaborador": st.column_config.TextColumn("Nome do Colaborador", disabled=True),
-                                "CPF": st.column_config.TextColumn("CPF", disabled=True),
-                                "Saldo": st.column_config.NumberColumn("Saldo (R$)", min_value=0.0, step=0.5, format="R$ %.2f"),
-                                "Tipo de Usuário": st.column_config.SelectboxColumn("Tipo de Usuário", options=["Novo Usuário", "Já Usuário"], required=True)
-                            },
-                            hide_index=True,
-                            use_container_width=True
-                        )
-
-                        if st.button("💾 Salvar e Registrar Pedido em Lote para esta Filial"):
-                            conn = sqlite3.connect(DB_FILE)
-                            c = conn.cursor()
-                            
-                            c.execute("DELETE FROM historico_pedidos_va WHERE mes_ano = ? AND filial_nome = ?", (competencia_str, filial_va_escolhida))
-                            
-                            for idx, row in tabela_editada.iterrows():
-                                mat_original = df_lote_filtrado.iloc[idx]['matricula']
-                                novo_saldo_val = float(row['Saldo'])
-                                novo_tipo_val = row['Tipo de Usuário']
-                                cnpj_val = row['CNPJ']
-                                nome_val = row['Nome do Colaborador']
-                                cpf_val = row['CPF']
-                                
-                                c.execute('''
-                                    UPDATE colaboradores 
-                                    SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
-                                    WHERE matricula = ?
-                                ''', (novo_saldo_val, novo_tipo_val, mat_original))
-                                
-                                c.execute('''
-                                    INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, saldo, tipo_usuario, data_registro)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                ''', (competencia_str, filial_va_escolhida, mat_original, cnpj_val, nome_val, cpf_val, novo_saldo_val, novo_tipo_val, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                                
-                            conn.commit()
-                            conn.close()
-                            st.success(f"Pedido em lote da filial {filial_va_escolhida} referente a {competencia_str} salvo com sucesso!")
-                            st.rerun()
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Pedido da filial {filial_va_escolhida} referente a {competencia_str} salvo com sucesso!")
+                    st.rerun()
 
     with tab_hist:
         st.subheader("📜 Histórico de Pedidos de Saldo Alimentação")
