@@ -10,20 +10,14 @@ import io
 st.set_page_config(page_title="Sistema de Gestão ADM", layout="wide", initial_sidebar_state="expanded")
 
 # =========================================================
-# ESTILIZAÇÃO CSS (OCULTA O BOTÃO GERENCIAR APLICATIVO / RODAPÉ / MENU NATIVO)
+# ESTILIZAÇÃO CSS (OCULTA ELEMENTOS INTERNOS POSSÍVEIS)
 # =========================================================
 st.markdown("""
     <style>
-    /* Oculta menu nativo, rodapé padrão e botões de gerenciamento de app flutuantes */
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
     div[data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-    .stAppToolbar {visibility: hidden !important; display: none !important;}
-    
-    /* Remove botões flutuantes de "Manage App" no canto inferior */
-    button[kind="header"] {visibility: hidden !important; display: none !important;}
-    .viewerBadge_container__1QSob {visibility: hidden !important; display: none !important;}
     
     .main { background-color: #f8f9fa; }
     h1 { color: #1e3a8a; font-family: 'Segoe UI', sans-serif; font-weight: 700; margin-bottom: 20px; }
@@ -943,8 +937,8 @@ elif menu == "📜 Histórico de Alterações":
         st.info("Nenhum histórico registrado até o momento.")
     else:
         filtro_mat = st.multiselect("Filtrar por Colaborador:", options=df_hist['Colaborador'].dropna().unique())
-        df_h_filtered = df_hist.copy()
+        fil_h_filtered = df_hist.copy()
         if filtro_mat:
-            df_h_filtered = df_h_filtered[df_h_filtered['Colaborador'].isin(filtro_mat)]
+            fil_h_filtered = fil_h_filtered[fil_h_filtered['Colaborador'].isin(filtro_mat)]
         
-        st.dataframe(df_h_filtered, use_container_width=True)
+        st.dataframe(fil_h_filtered, use_container_width=True)
