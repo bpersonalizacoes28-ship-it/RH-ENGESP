@@ -2,15 +2,15 @@
 import pandas as pd
 import streamlit as st
 from datetime import datetime, date, timedelta
-from PIL import Image
 import re
 import io
+import base64
 
 # Configuração inicial da página
 st.set_page_config(page_title="Sistema de Gestão ADM", layout="wide", initial_sidebar_state="expanded")
 
 # =========================================================
-# ESTILIZAÇÃO CSS (OCULTA ELEMENTOS INTERNOS POSSÍVEIS)
+# ESTILIZAÇÃO CSS (OCULTA O GERENCIAR APLICATIVO E RODAPÉ)
 # =========================================================
 st.markdown("""
     <style>
@@ -234,14 +234,20 @@ st.markdown("### 🏢 Sistema de Gestão ADM")
 menu = st.selectbox("📌 **SELECIONE O MÓDULO DESEJADO ABAIXO:**", lista_modulos, key="menu_principal_topo")
 st.markdown("---")
 
-# Barra lateral com "ENGESP"
+# ---------------------------------------------------------
+# BARRA LATERAL (LOGO ENGESP DEFINITIVA E ORGANIZADA)
+# ---------------------------------------------------------
 st.sidebar.markdown("## 🏢 ENGESP")
-st.sidebar.write("Acesso Livre - Gestão ADM")
+st.sidebar.write("Engenharia São Patrício - Gestão ADM")
 st.sidebar.markdown("---")
-logo_file = st.sidebar.file_uploader("Enviar Logo da Empresa", type=["png", "jpg", "jpeg"])
-if logo_file is not None:
-    image = Image.open(logo_file)
-    st.sidebar.image(image, use_column_width=True)
+
+# Exibe a logo oficial embutida sem necessidade de upload
+try:
+    st.sidebar.image("image_ec1b03.png", use_column_width=True)
+except Exception:
+    st.sidebar.markdown("### **ENGESP**")
+
+st.sidebar.markdown("---")
 
 # ---------------------------------------------------------
 # MÓDULO 1: DASHBOARD (PAINEL DE GESTÃO)
@@ -937,8 +943,8 @@ elif menu == "📜 Histórico de Alterações":
         st.info("Nenhum histórico registrado até o momento.")
     else:
         filtro_mat = st.multiselect("Filtrar por Colaborador:", options=df_hist['Colaborador'].dropna().unique())
-        fil_h_filtered = df_hist.copy()
+        df_h_filtered = df_hist.copy()
         if filtro_mat:
-            fil_h_filtered = fil_h_filtered[fil_h_filtered['Colaborador'].isin(filtro_mat)]
+            df_h_filtered = df_h_filtered[df_h_filtered['Colaborador'].isin(filtro_mat)]
         
-        st.dataframe(fil_h_filtered, use_container_width=True)
+        st.dataframe(df_h_filtered, use_container_width=True)
