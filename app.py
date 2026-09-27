@@ -4,9 +4,6 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 from PIL import Image
 import re
-import random
-import smtplib
-from email.mime.text import MIMEText
 import io
 
 # Configuração inicial da página
@@ -44,64 +41,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 DB_FILE = "gestao_empresa.db"
-
-# ---------------------------------------------------------
-# SISTEMA DE AUTENTICAÇÃO POR E-MAIL (LOGIN)
-# ---------------------------------------------------------
-if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-if "codigo_enviado" not in st.session_state:
-    st.session_state.codigo_enviado = ""
-if "email_usuario" not in st.session_state:
-    st.session_state.email_usuario = ""
-
-def verificar_email_autorizado(email):
-    if "@" in email and "." in email:
-        return True
-    return False
-
-if not st.session_state.autenticado:
-    st.title("🔐 Acesso Restrito - Gestão RH")
-    st.write("Digite seu e-mail corporativo para receber o código de acesso de 6 dígitos.")
-    
-    email_input = st.text_input("E-mail do Administrativo:")
-    
-    if st.button("Enviar Código de Acesso"):
-        if verificar_email_autorizado(email_input):
-            codigo_gerado = str(random.randint(100000, 999999))
-            st.session_state.codigo_enviado = codigo_gerado
-            st.session_state.email_usuario = email_input
-            
-            try:
-                remetente = "seu_email@gmail.com"
-                senha = "sua_senha_de_app_do_gmail"
-                
-                mensagem = MIMEText(f"Seu código de acesso ao Sistema de Gestão RH é: {codigo_gerado}")
-                mensagem['Subject'] = "Código de Acesso - Gestão RH"
-                mensagem['From'] = remetente
-                mensagem['To'] = email_input
-                
-                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-                    server.login(remetente, senha)
-                    server.sendmail(remetente, email_input, mensagem.as_string())
-                
-                st.success(f"Código enviado com sucesso para {email_input}!")
-            except Exception as e:
-                st.info(f"[Modo de Teste / Configuração] Seu código de acesso é: {codigo_gerado}")
-        else:
-            st.error("Por favor, digite um e-mail válido.")
-            
-    if st.session_state.codigo_enviado:
-        codigo_digitado = st.text_input("Digite o Código de 6 Dígitos:", type="password")
-        if st.button("Validar e Entrar"):
-            if codigo_digitado == st.session_state.codigo_enviado:
-                st.session_state.autenticado = True
-                st.success("Acesso liberado!")
-                st.rerun()
-            else:
-                st.error("Código incorreto. Tente novamente.")
-                
-    st.stop()
 
 # ---------------------------------------------------------
 # BANCO DE DADOS - INICIALIZAÇÃO
@@ -267,13 +206,7 @@ filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 # BARRA LATERAL (MENU PRINCIPAL COMPLETO)
 # ---------------------------------------------------------
 st.sidebar.markdown("## 🏢 Painel da Empresa")
-st.sidebar.write(f"Logado como: **{st.session_state.email_usuario}**")
-
-if st.sidebar.button("Sair / Trocar de Conta"):
-    st.session_state.autenticado = False
-    st.session_state.codigo_enviado = ""
-    st.session_state.email_usuario = ""
-    st.rerun()
+st.sidebar.write("Acesso Livre - Gestão RH")
 
 st.sidebar.markdown("---")
 
@@ -729,7 +662,7 @@ elif menu == "🔄 Transferência entre Filiais":
                     st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 6: PEDIDO SALDO ALIMENTAÇÃO (ATUALIZADO)
+# MÓDULO 6: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
     st.title("💳 Pedido e Gestão de Saldo do Cartão Alimentação")
@@ -767,7 +700,6 @@ elif menu == "💳 Pedido Saldo Alimentação":
             opcoes_filial_va = sorted(df_va_base['filial'].dropna().unique().tolist())
             filial_va_escolhida = st.selectbox("Selecione a Filial:", opcoes_filial_va)
             
-            # Filtro por Tipo de Usuário
             filtro_tipo_usuario = st.multiselect("Filtrar por Tipo de Usuário (Opcional):", ["Novo Usuário", "Já Usuário"], default=["Novo Usuário", "Já Usuário"])
 
             df_filial_edit = df_va_base[df_va_base['filial'] == filial_va_escolhida].copy()
@@ -779,11 +711,9 @@ elif menu == "💳 Pedido Saldo Alimentação":
             else:
                 st.write(f"Editando colaboradores da filial **{filial_va_escolhida}** para o período **{competencia_str}**:")
                 
-                # Configurando dados editáveis em tabela (data_editor)
                 df_filial_edit['Editar Saldo (R$)'] = df_filial_edit['saldo_cartao_alimentacao'].astype(float)
                 df_filial_edit['Editar Tipo Usuário'] = df_filial_edit['tipo_usuario_va']
                 
-                # Ordem rigorosa solicitada: CNPJ, Nome do Colaborador, CPF, Saldo, Tipo de Usuário
                 tabela_para_edicao = df_filial_edit[['cnpj_empresa', 'nome', 'cpf', 'Editar Saldo (R$)', 'Editar Tipo Usuário']].copy()
                 tabela_para_edicao.columns = ['CNPJ', 'Nome do Colaborador', 'CPF', 'Saldo', 'Tipo de Usuário']
                 
@@ -804,7 +734,6 @@ elif menu == "💳 Pedido Saldo Alimentação":
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     
-                    # Remove registros anteriores salvos para o mesmo mês/ano e filial para evitar duplicatas ao atualizar
                     c.execute("DELETE FROM historico_pedidos_va WHERE mes_ano = ? AND filial_nome = ?", (competencia_str, filial_va_escolhida))
                     
                     for idx, row in tabela_editada.iterrows():
@@ -815,14 +744,12 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         nome_val = row['Nome do Colaborador']
                         cpf_val = row['CPF']
                         
-                        # Atualiza cadastro principal
                         c.execute('''
                             UPDATE colaboradores 
                             SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
                             WHERE matricula = ?
                         ''', (novo_saldo_val, novo_tipo_val, mat_original))
                         
-                        # Salva no histórico de pedidos mensais
                         c.execute('''
                             INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, saldo, tipo_usuario, data_registro)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -855,14 +782,12 @@ elif menu == "💳 Pedido Saldo Alimentação":
             
             st.write(f"Exibindo registros para o período: **{mes_export_sel}** ({len(df_hist_filtrado)} registros)")
             
-            # Exibe na ordem exata solicitada: CNPJ, Nome do Colaborador, CPF, Saldo, Tipo de Usuário
             tabela_exibicao_hist = df_hist_filtrado[['CNPJ', 'Nome do Colaborador', 'CPF', 'Saldo', 'Tipo de Usuário', 'Filial']].copy()
             st.dataframe(tabela_exibicao_hist, use_container_width=True)
 
             col_exp_1, col_exp_2 = st.columns(2)
             
             with col_exp_1:
-                # Botão para exportar o mês selecionado em Excel na ordem exata sem formatação abreviada
                 output_va = io.BytesIO()
                 with pd.ExcelWriter(output_va, engine='openpyxl') as writer:
                     tabela_exibicao_hist.to_excel(writer, index=False, sheet_name='Pedido VA')
