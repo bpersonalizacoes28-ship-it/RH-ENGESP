@@ -10,7 +10,7 @@ import base64
 st.set_page_config(page_title="Sistema de Gestão ADM", layout="wide", initial_sidebar_state="expanded")
 
 # =========================================================
-# ESTILIZAÇÃO CSS (OCULTA O GERENCIAR APLICATIVO E RODAPÉ)
+# ESTILIZAÇÃO CSS (OCULTA GERENCIAR APLICATIVO E RODAPÉ)
 # =========================================================
 st.markdown("""
     <style>
@@ -235,17 +235,25 @@ menu = st.selectbox("📌 **SELECIONE O MÓDULO DESEJADO ABAIXO:**", lista_modul
 st.markdown("---")
 
 # ---------------------------------------------------------
-# BARRA LATERAL (LOGO ENGESP DEFINITIVA E ORGANIZADA)
-# ---------------------------------------------------------
+# BARRA LATERAL (EXIBIÇÃO DA LOGO OFICIAL ENGESP)
+# ----------------info: Tentativa por arquivo local ou fallback HTML/Base64---
 st.sidebar.markdown("## 🏢 ENGESP")
 st.sidebar.write("Engenharia São Patrício - Gestão ADM")
 st.sidebar.markdown("---")
 
-# Exibe a logo oficial embutida sem necessidade de upload
 try:
+    # Tenta carregar o arquivo de imagem fornecido na pasta local
     st.sidebar.image("image_ec1b03.png", use_column_width=True)
 except Exception:
-    st.sidebar.markdown("### **ENGESP**")
+    # Se por acaso o arquivo não for encontrado na pasta do servidor, exibe via HTML com a tag oficial
+    st.sidebar.markdown(
+        """
+        <div style="text-align: center; margin-bottom: 15px;">
+            <img src="app/static/image_ec1b03.png" style="max-width: 100%; border-radius: 8px;">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 st.sidebar.markdown("---")
 
