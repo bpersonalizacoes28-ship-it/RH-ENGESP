@@ -10,16 +10,10 @@ import io
 st.set_page_config(page_title="Sistema de Gestão RH", layout="wide", initial_sidebar_state="expanded")
 
 # =========================================================
-# ESTILIZAÇÃO CSS (OCULTA COMPLETAMENTE O MENU NATIVO / GERENCIAR APLICATIVO)
+# ESTILIZAÇÃO CSS (SEGURA - MANTÉM OS BOTÕES DO STREAMLIT VISÍVEIS)
 # =========================================================
 st.markdown("""
     <style>
-    header {visibility: hidden !important;}
-    #MainMenu {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    .stApp > header {display: none !important;}
-    [data-testid="stStatusWidget"] {visibility: hidden !important;}
-    
     .main { background-color: #f8f9fa; }
     h1 { color: #1e3a8a; font-family: 'Segoe UI', sans-serif; font-weight: 700; margin-bottom: 20px; }
     h2, h3 { color: #1e40af; font-family: 'Segoe UI', sans-serif; }
@@ -217,21 +211,9 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# BARRA LATERAL (MENU PRINCIPAL)
+# MENU PRINCIPAL (DISPONÍVEL NO TOPO DA TELA PARA FACILITAR)
 # ---------------------------------------------------------
-st.sidebar.markdown("## 🏢 Painel da Empresa")
-st.sidebar.write("Acesso Livre - Gestão RH")
-
-st.sidebar.markdown("---")
-
-logo_file = st.sidebar.file_uploader("Enviar Logo da Empresa", type=["png", "jpg", "jpeg"])
-if logo_file is not None:
-    image = Image.open(logo_file)
-    st.sidebar.image(image, use_column_width=True)
-
-st.sidebar.markdown("---")
-st.sidebar.title("📌 Menu Principal")
-menu = st.sidebar.radio("Selecione o módulo:", [
+lista_modulos = [
     "📊 Dashboard / Consulta",
     "➕ Novo Colaborador / Admissão",
     "✏️ Editar Cadastro do Colaborador",
@@ -241,7 +223,20 @@ menu = st.sidebar.radio("Selecione o módulo:", [
     "📥 Importar Excel por Filial",
     "📤 Exportar Dados",
     "📜 Histórico de Alterações"
-], key="menu_principal_sidebar")
+]
+
+st.markdown("### 🏢 Sistema de Gestão RH")
+menu = st.selectbox("📌 **SELECIONE O MÓDULO DESEJADO ABAIXO:**", lista_modulos, key="menu_principal_topo")
+st.markdown("---")
+
+# Também mantemos espelhado na barra lateral para conveniência
+st.sidebar.markdown("## 🏢 Painel da Empresa")
+st.sidebar.write("Acesso Livre - Gestão RH")
+st.sidebar.markdown("---")
+logo_file = st.sidebar.file_uploader("Enviar Logo da Empresa", type=["png", "jpg", "jpeg"])
+if logo_file is not None:
+    image = Image.open(logo_file)
+    st.sidebar.image(image, use_column_width=True)
 
 # ---------------------------------------------------------
 # MÓDULO 1: DASHBOARD (PAINEL DE GESTÃO)
@@ -396,7 +391,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                     st.error("Erro: Matrícula já cadastrada no sistema.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: EDITAR CADASTRO COMPLETO
+# MÓDULO 3: EDITAR CADASTRO COMPLETO (COM FILTRO POR MATRÍCULA)
 # ---------------------------------------------------------
 elif menu == "✏️ Editar Cadastro do Colaborador":
     st.title("✏️ Editar Cadastro Completo do Colaborador")
