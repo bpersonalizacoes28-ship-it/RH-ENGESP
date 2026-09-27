@@ -43,7 +43,7 @@ st.markdown("""
 DB_FILE = "gestao_empresa.db"
 
 # ---------------------------------------------------------
-# BANCO DE DADOS - INICIALIZAÇÃO
+# BANCO DE DADOS - INICIALIZAÇÃO E MIGRAÇÃO
 # ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -85,6 +85,17 @@ def init_db():
             FOREIGN KEY (filial_id) REFERENCES filiais (id)
         )
     ''')
+    
+    # Garantir compatibilidade com bancos existentes que não tenham as novas colunas
+    try:
+        c.execute("ALTER TABLE colaboradores ADD COLUMN status_colaborador TEXT DEFAULT 'Ativo'")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE colaboradores ADD COLUMN data_demissao DATE")
+    except Exception:
+        pass
+
     c.execute('''
         CREATE TABLE IF NOT EXISTS historico_colaboradores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
