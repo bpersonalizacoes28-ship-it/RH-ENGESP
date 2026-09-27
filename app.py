@@ -512,23 +512,6 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         tipo_va_idx = tipo_va_opts.index(tipo_va_atual)
                         tipo_usuario_va_e = s5.selectbox("Tipo de Usuário (Alimentação)", tipo_va_opts, index=tipo_va_idx)
 
-                        st.subheader("4. Status de ASO e Documentação")
-                        e1, e2 = st.columns(2)
-                        status_aso_opts = ["Procurando Clínica", "Exame Agendado", "Aguardando Resultado", "ASO Pronto"]
-                        aso_idx = status_aso_opts.index(dados[16]) if dados[16] in status_aso_opts else 0
-                        status_aso_e = e1.selectbox("Status ASO", status_aso_opts, index=aso_idx)
-
-                        doc_opts = ["Pendente", "Entregue", "Em Análise", "Concluído"]
-                        p_idx = doc_opts.index(dados[17]) if dados[17] in doc_opts else 0
-                        doc_p_e = e2.selectbox("Documentos Pessoais", doc_opts, index=p_idx)
-
-                        e3, e4 = st.columns(2)
-                        pre_idx = doc_opts.index(dados[18]) if dados[18] in doc_opts else 0
-                        doc_pre_e = e3.selectbox("Documentos Pré-Admissionais", doc_opts, index=pre_idx)
-
-                        adm_idx = doc_opts.index(dados[19]) if dados[19] in doc_opts else 0
-                        doc_adm_e = e4.selectbox("Documentos Admissionais", doc_opts, index=adm_idx)
-
                         if st.button("💾 Salvar Todas as Alterações"):
                             cpf_salvar = formatar_cpf(cpf_e)
                             cnpj_salvar = formatar_cnpj(cnpj_e)
@@ -537,7 +520,6 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             registrar_historico(matricula_sel, "Alteração de Cargo / Função", dados[5], cargo_e)
                             registrar_historico(matricula_sel, "Alteração de Filial", filial_atual_nome, filial_e)
                             registrar_historico(matricula_sel, "Alteração de Status", status_atual_colab, status_colab_e)
-                            registrar_historico(matricula_sel, "Alteração de ASO", dados[16], status_aso_e)
                             registrar_historico(matricula_sel, "Status Cartão Alimentação", status_sol_atual, status_sol_va_e)
 
                             conn = sqlite3.connect(DB_FILE)
@@ -547,15 +529,14 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                                 SET matricula = ?, nome = ?, cpf = ?, rg = ?, funcao = ?, cnpj_empresa = ?,
                                     filial_id = ?, data_nascimento = ?, data_contratacao = ?, data_retorno_folga = ?,
                                     intervalo_folga_dias = ?, proxima_folga = ?, motivo_retorno = ?, he_50 = ?, he_100 = ?,
-                                    saldo_cartao_alimentacao = ?, status_solicitacao_va = ?, status_aso = ?, doc_pessoais = ?,
-                                    doc_preadmissionais = ?, doc_admissionais = ?, tipo_usuario_va = ?, 
+                                    saldo_cartao_alimentacao = ?, status_solicitacao_va = ?, tipo_usuario_va = ?, 
                                     status_colaborador = ?, data_demissao = ?
                                 WHERE matricula = ?
                             ''', (
                                 mat_e, nome_e, cpf_salvar, rg_e, cargo_e, cnpj_salvar,
                                 filiais_nome_para_id[filial_e], str(dt_nasc_e), str(data_contratacao_e),
                                 str(data_retorno_folga_e), intervalo_folga_e, str(proxima_folga_calc_e),
-                                motivo_retorno_e, he_50_e, he_100_e, saldo_va_e, status_sol_va_e, status_aso_e, doc_p_e, doc_pre_e, doc_adm_e,
+                                motivo_retorno_e, he_50_e, he_100_e, saldo_va_e, status_sol_va_e,
                                 tipo_usuario_va_e, status_colab_e, dt_dem_salvar, matricula_sel
                             ))
                             conn.commit()
