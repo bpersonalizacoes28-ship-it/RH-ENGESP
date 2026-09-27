@@ -324,7 +324,8 @@ elif menu == "➕ Novo Colaborador / Admissão":
         rg = c5.text_input("RG")
 
         c6, c7 = st.columns(2)
-        cnpj_empresa = c6.text_input("CNPJ da Empresa (somente números ou formatado)")
+        # CNPJ padrão preenchido conforme solicitado
+        cnpj_empresa = c6.text_input("CNPJ da Empresa (somente números ou formatado)", value="37.608.361/0001-25")
         data_nascimento = c7.date_input("Data de Nascimento", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
         st.subheader("2. Dados Contratuais e Afastamento / Retorno")
@@ -440,7 +441,10 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                     u4, u5, u6 = st.columns(3)
                     cpf_e = u4.text_input("CPF (com pontuação BR)", value=formatar_cpf(dados[3]))
                     rg_e = u5.text_input("RG", value=dados[4] or "")
-                    cnpj_e = u6.text_input("CNPJ Empresa (com pontuação BR)", value=formatar_cnpj(dados[6]))
+                    
+                    # Se não houver CNPJ salvo, preenche com o padrão solicitado
+                    cnpj_val_atual = formatar_cnpj(dados[6]) if dados[6] else "37.608.361/0001-25"
+                    cnpj_e = u6.text_input("CNPJ Empresa (com pontuação BR)", value=cnpj_val_atual)
 
                     u7, u8 = st.columns(2)
                     filial_atual_nome = filiais_id_para_nome.get(dados[7], list(filiais_nome_para_id.keys())[0] if filiais_nome_para_id else "")
@@ -556,7 +560,8 @@ elif menu == "🏢 Cadastro de Filiais":
     with tab_nova:
         st.subheader("Adicionar Nova Filial")
         nome_filial = st.text_input("Nome da Filial / Unidade *")
-        cnpj_filial = st.text_input("CNPJ da Filial (Opcional)")
+        # CNPJ padrão preenchido para filiais também, caso deseje
+        cnpj_filial = st.text_input("CNPJ da Filial (Opcional)", value="37.608.361/0001-25")
         
         if st.button("Cadastrar Filial"):
             if not nome_filial:
@@ -590,7 +595,7 @@ elif menu == "🏢 Cadastro de Filiais":
                 filial_id_sel = filial_row['id']
                 
                 novo_nome_filial = st.text_input("Nome da Filial", value=filial_row['nome'])
-                novo_cnpj_filial = st.text_input("CNPJ da Filial", value=formatar_cnpj(filial_row['cnpj']))
+                novo_cnpj_filial = st.text_input("CNPJ da Filial", value=formatar_cnpj(filial_row['cnpj']) if filial_row['cnpj'] else "37.608.361/0001-25")
                 
                 col_b1, col_b2 = st.columns(2)
                 with col_b1:
@@ -847,12 +852,12 @@ elif menu == "📥 Importar Excel por Filial":
                                 
                             c.execute('''
                                 INSERT OR IGNORE INTO colaboradores (
-                                    matricula, nome, funcao, filial_id, status_aso
-                                ) VALUES (?, ?, ?, ?, ?)
+                                    matricula, nome, funcao, filial_id, status_aso, cnpj_empresa
+                                ) VALUES (?, ?, ?, ?, ?, ?)
                             ''', (
                                 mat, nom, 
                                 str(row.get('funcao', row.get('Cargo', 'Não Informado'))),
-                                filial_id_val, 'Procurando Clínica'
+                                filial_id_val, 'Procurando Clínica', '37.608.361/0001-25'
                             ))
                             if c.rowcount > 0:
                                 importados += 1
