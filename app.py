@@ -413,162 +413,168 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
         st.info("Nenhum colaborador cadastrado.")
     else:
         st.subheader("🔍 Filtre para localizar o colaborador facilmente")
-        f1, f2 = st.columns(2)
+        f1, f2, f3 = st.columns(3)
+        filtro_mat_edit = f3.text_input("Filtrar por Matrícula (Parcial ou Completa):")
         filtro_filial_edit = f1.multiselect("Filtrar por Filial:", options=df_colab['filial'].dropna().unique())
         filtro_cargo_edit = f2.multiselect("Filtrar por Cargo / Função:", options=df_colab['cargo'].dropna().unique())
 
         df_edit_filtered = df_colab.copy()
+        if filtro_mat_edit:
+            df_edit_filtered = df_edit_filtered[df_edit_filtered['matricula'].str.contains(filtro_mat_edit, case=False, na=False)]
         if filtro_filial_edit:
             df_edit_filtered = df_edit_filtered[df_edit_filtered['filial'].isin(filtro_filial_edit)]
         if filtro_cargo_edit:
             df_edit_filtered = df_edit_filtered[df_edit_filtered['cargo'].isin(filtro_cargo_edit)]
 
-        opcoes_colab = df_edit_filtered['matricula'] + " - " + df_edit_filtered['nome'] + " (Cargo/Função: " + df_edit_filtered['cargo'].fillna('Sem Registro') + ")"
-        colab_selecionado = st.selectbox("Selecione o Colaborador para Editar:", opcoes_colab)
-        
-        if colab_selecionado:
-            matricula_sel = colab_selecionado.split(" - ")[0]
+        if df_edit_filtered.empty:
+            st.warning("Nenhum colaborador encontrado com os filtros informados.")
+        else:
+            opcoes_colab = df_edit_filtered['matricula'] + " - " + df_edit_filtered['nome'] + " (Cargo/Função: " + df_edit_filtered['cargo'].fillna('Sem Registro') + ")"
+            colab_selecionado = st.selectbox("Selecione o Colaborador para Editar:", opcoes_colab)
             
-            conn = sqlite3.connect(DB_FILE)
-            c = conn.cursor()
-            c.execute("SELECT * FROM colaboradores WHERE matricula = ?", (matricula_sel,))
-            dados = c.fetchone()
-            conn.close()
-
-            if dados:
-                tab_edit, tab_delete = st.tabs(["✏️ Alterar Todas as Informações", "🗑️ Excluir Registros"])
+            if colab_selecionado:
+                matricula_sel = colab_selecionado.split(" - ")[0]
                 
-                with tab_edit:
-                    st.subheader("1. Identificação, Cargo / Função e Dados Pessoais")
-                    u1, u2, u3 = st.columns(3)
-                    mat_e = u1.text_input("Matrícula *", value=dados[1])
-                    nome_e = u2.text_input("Nome Completo *", value=dados[2])
-                    cargo_e = u3.text_input("Cargo / Função *", value=dados[5] or "")
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute("SELECT * FROM colaboradores WHERE matricula = ?", (matricula_sel,))
+                dados = c.fetchone()
+                conn.close()
 
-                    u4, u5, u6 = st.columns(3)
-                    cpf_e = u4.text_input("CPF (com pontuação BR)", value=formatar_cpf(dados[3]))
-                    rg_e = u5.text_input("RG", value=dados[4] or "")
+                if dados:
+                    tab_edit, tab_delete = st.tabs(["✏️ Alterar Todas as Informações", "🗑️ Excluir Registros"])
                     
-                    cnpj_val_atual = formatar_cnpj(dados[6]) if dados[6] else "37.608.361/0001-25"
-                    cnpj_e = u6.text_input("CNPJ Empresa (com pontuação BR)", value=cnpj_val_atual)
+                    with tab_edit:
+                        st.subheader("1. Identificação, Cargo / Função e Dados Pessoais")
+                        u1, u2, u3 = st.columns(3)
+                        mat_e = u1.text_input("Matrícula *", value=dados[1])
+                        nome_e = u2.text_input("Nome Completo *", value=dados[2])
+                        cargo_e = u3.text_input("Cargo / Função *", value=dados[5] or "")
 
-                    u7, u8 = st.columns(2)
-                    filial_atual_nome = filiais_id_para_nome.get(dados[7], list(filiais_nome_para_id.keys())[0] if filiais_nome_para_id else "")
-                    filial_idx = list(filiais_nome_para_id.keys()).index(filial_atual_nome) if filial_atual_nome in filiais_nome_para_id else 0
-                    filial_e = u7.selectbox("Filial", options=list(filiais_nome_para_id.keys()), index=filial_idx)
-                    
-                    dt_nasc_val = parse_date_para_input(dados[8])
-                    dt_nasc_e = u8.date_input("Data de Nascimento", value=dt_nasc_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+                        u4, u5, u6 = st.columns(3)
+                        cpf_e = u4.text_input("CPF (com pontuação BR)", value=formatar_cpf(dados[3]))
+                        rg_e = u5.text_input("RG", value=dados[4] or "")
+                        
+                        cnpj_val_atual = formatar_cnpj(dados[6]) if dados[6] else "37.608.361/0001-25"
+                        cnpj_e = u6.text_input("CNPJ Empresa (com pontuação BR)", value=cnpj_val_atual)
 
-                    # CAMPOS DE STATUS E DEMISSÃO
-                    col_st1, col_st2 = st.columns(2)
-                    status_atual_colab = dados[23] if len(dados) > 23 and dados[23] in ["Ativo", "Demitido"] else "Ativo"
-                    status_idx = ["Ativo", "Demitido"].index(status_atual_colab)
-                    status_colab_e = col_st1.selectbox("Status do Colaborador", ["Ativo", "Demitido"], index=status_idx)
-                    
-                    data_demissao_e = None
-                    if status_colab_e == "Demitido":
-                        dt_dem_val = parse_date_para_input(dados[24]) if len(dados) > 24 and dados[24] else date.today()
-                        data_demissao_e = col_st2.date_input("Data da Demissão", value=dt_dem_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+                        u7, u8 = st.columns(2)
+                        filial_atual_nome = filiais_id_para_nome.get(dados[7], list(filiais_nome_para_id.keys())[0] if filiais_nome_para_id else "")
+                        filial_idx = list(filiais_nome_para_id.keys()).index(filial_atual_nome) if filial_atual_nome in filiais_nome_para_id else 0
+                        filial_e = u7.selectbox("Filial", options=list(filiais_nome_para_id.keys()), index=filial_idx)
+                        
+                        dt_nasc_val = parse_date_para_input(dados[8])
+                        dt_nasc_e = u8.date_input("Data de Nascimento", value=dt_nasc_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
-                    st.subheader("2. Dados Contratuais e Retorno de Folga / Férias / Recesso")
-                    d1, d2, d3, d4 = st.columns(4)
-                    dt_contr_val = parse_date_para_input(dados[9])
-                    dt_ret_val = parse_date_para_input(dados[10])
-                    
-                    data_contratacao_e = d1.date_input("Data de Contratação", value=dt_contr_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
-                    
-                    motivo_atual = dados[21] if len(dados) > 21 and dados[21] in ["Folga", "Férias", "Recesso"] else "Folga"
-                    motivo_idx = ["Folga", "Férias", "Recesso"].index(motivo_atual)
-                    motivo_retorno_e = d2.selectbox("Motivo do Retorno", ["Folga", "Férias", "Recesso"], index=motivo_idx)
+                        # CAMPOS DE STATUS E DEMISSÃO
+                        col_st1, col_st2 = st.columns(2)
+                        status_atual_colab = dados[23] if len(dados) > 23 and dados[23] in ["Ativo", "Demitido"] else "Ativo"
+                        status_idx = ["Ativo", "Demitido"].index(status_atual_colab)
+                        status_colab_e = col_st1.selectbox("Status do Colaborador", ["Ativo", "Demitido"], index=status_idx)
+                        
+                        data_demissao_e = None
+                        if status_colab_e == "Demitido":
+                            dt_dem_val = parse_date_para_input(dados[24]) if len(dados) > 24 and dados[24] else date.today()
+                            data_demissao_e = col_st2.date_input("Data da Demissão", value=dt_dem_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
-                    data_retorno_folga_e = d3.date_input("Data Retorno de Folga/Férias/Recesso", value=dt_ret_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
-                    
-                    inter_val = int(dados[11]) if dados[11] in [30, 60, 90] else 30
-                    inter_idx = [30, 60, 90].index(inter_val)
-                    intervalo_folga_e = d4.selectbox("Cálculo Próxima Previsão (Dias)", [30, 60, 90], index=inter_idx)
+                        st.subheader("2. Dados Contratuais e Retorno de Folga / Férias / Recesso")
+                        d1, d2, d3, d4 = st.columns(4)
+                        dt_contr_val = parse_date_para_input(dados[9])
+                        dt_ret_val = parse_date_para_input(dados[10])
+                        
+                        data_contratacao_e = d1.date_input("Data de Contratação", value=dt_contr_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+                        
+                        motivo_atual = dados[21] if len(dados) > 21 and dados[21] in ["Folga", "Férias", "Recesso"] else "Folga"
+                        motivo_idx = ["Folga", "Férias", "Recesso"].index(motivo_atual)
+                        motivo_retorno_e = d2.selectbox("Motivo do Retorno", ["Folga", "Férias", "Recesso"], index=motivo_idx)
 
-                    proxima_folga_calc_e = calcular_proxima_folga(data_retorno_folga_e, intervalo_folga_e)
-                    st.success(f"💡 **Previsão Exata Recalculada ({intervalo_folga_e} dias a partir de {formatar_data_br(data_retorno_folga_e)}):** {formatar_data_br(proxima_folga_calc_e)}")
+                        data_retorno_folga_e = d3.date_input("Data Retorno de Folga/Férias/Recesso", value=dt_ret_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+                        
+                        inter_val = int(dados[11]) if dados[11] in [30, 60, 90] else 30
+                        inter_idx = [30, 60, 90].index(inter_val)
+                        intervalo_folga_e = d4.selectbox("Cálculo Próxima Previsão (Dias)", [30, 60, 90], index=inter_idx)
 
-                    st.subheader("3. Horas Extras e Cartão Alimentação")
-                    s1, s2, s3, s4, s5 = st.columns(5)
-                    he_50_e = s1.number_input("Horas Extras 50%", value=float(dados[13] or 0.0), step=0.5)
-                    he_100_e = s2.number_input("Horas Extras 100%", value=float(dados[14] or 0.0), step=0.5)
-                    saldo_va_e = s3.number_input("Saldo Cartão Alimentação Padrão (R$)", value=float(dados[15] or 0.0), step=10.0)
-                    
-                    status_sol_atual = dados[22] if len(dados) > 22 and dados[22] in ["Normal / Atualizado", "Solicitar Saldo"] else "Normal / Atualizado"
-                    status_sol_idx = ["Normal / Atualizado", "Solicitar Saldo"].index(status_sol_atual)
-                    status_sol_va_e = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"], index=status_sol_idx)
+                        proxima_folga_calc_e = calcular_proxima_folga(data_retorno_folga_e, intervalo_folga_e)
+                        st.success(f"💡 **Previsão Exata Recalculada ({intervalo_folga_e} dias a partir de {formatar_data_br(data_retorno_folga_e)}):** {formatar_data_br(proxima_folga_calc_e)}")
 
-                    tipo_va_opts = ["Já Usuário", "Novo Usuário"]
-                    tipo_va_atual = dados[20] if len(dados) > 20 and dados[20] in tipo_va_opts else "Já Usuário"
-                    tipo_va_idx = tipo_va_opts.index(tipo_va_atual)
-                    tipo_usuario_va_e = s5.selectbox("Tipo de Usuário (Alimentação)", tipo_va_opts, index=tipo_va_idx)
+                        st.subheader("3. Horas Extras e Cartão Alimentação")
+                        s1, s2, s3, s4, s5 = st.columns(5)
+                        he_50_e = s1.number_input("Horas Extras 50%", value=float(dados[13] or 0.0), step=0.5)
+                        he_100_e = s2.number_input("Horas Extras 100%", value=float(dados[14] or 0.0), step=0.5)
+                        saldo_va_e = s3.number_input("Saldo Cartão Alimentação Padrão (R$)", value=float(dados[15] or 0.0), step=10.0)
+                        
+                        status_sol_atual = dados[22] if len(dados) > 22 and dados[22] in ["Normal / Atualizado", "Solicitar Saldo"] else "Normal / Atualizado"
+                        status_sol_idx = ["Normal / Atualizado", "Solicitar Saldo"].index(status_sol_atual)
+                        status_sol_va_e = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"], index=status_sol_idx)
 
-                    st.subheader("4. Status de ASO e Documentação")
-                    e1, e2 = st.columns(2)
-                    status_aso_opts = ["Procurando Clínica", "Exame Agendado", "Aguardando Resultado", "ASO Pronto"]
-                    aso_idx = status_aso_opts.index(dados[16]) if dados[16] in status_aso_opts else 0
-                    status_aso_e = e1.selectbox("Status ASO", status_aso_opts, index=aso_idx)
+                        tipo_va_opts = ["Já Usuário", "Novo Usuário"]
+                        tipo_va_atual = dados[20] if len(dados) > 20 and dados[20] in tipo_va_opts else "Já Usuário"
+                        tipo_va_idx = tipo_va_opts.index(tipo_va_atual)
+                        tipo_usuario_va_e = s5.selectbox("Tipo de Usuário (Alimentação)", tipo_va_opts, index=tipo_va_idx)
 
-                    doc_opts = ["Pendente", "Entregue", "Em Análise", "Concluído"]
-                    p_idx = doc_opts.index(dados[17]) if dados[17] in doc_opts else 0
-                    doc_p_e = e2.selectbox("Documentos Pessoais", doc_opts, index=p_idx)
+                        st.subheader("4. Status de ASO e Documentação")
+                        e1, e2 = st.columns(2)
+                        status_aso_opts = ["Procurando Clínica", "Exame Agendado", "Aguardando Resultado", "ASO Pronto"]
+                        aso_idx = status_aso_opts.index(dados[16]) if dados[16] in status_aso_opts else 0
+                        status_aso_e = e1.selectbox("Status ASO", status_aso_opts, index=aso_idx)
 
-                    e3, e4 = st.columns(2)
-                    pre_idx = doc_opts.index(dados[18]) if dados[18] in doc_opts else 0
-                    doc_pre_e = e3.selectbox("Documentos Pré-Admissionais", doc_opts, index=pre_idx)
+                        doc_opts = ["Pendente", "Entregue", "Em Análise", "Concluído"]
+                        p_idx = doc_opts.index(dados[17]) if dados[17] in doc_opts else 0
+                        doc_p_e = e2.selectbox("Documentos Pessoais", doc_opts, index=p_idx)
 
-                    adm_idx = doc_opts.index(dados[19]) if dados[19] in doc_opts else 0
-                    doc_adm_e = e4.selectbox("Documentos Admissionais", doc_opts, index=adm_idx)
+                        e3, e4 = st.columns(2)
+                        pre_idx = doc_opts.index(dados[18]) if dados[18] in doc_opts else 0
+                        doc_pre_e = e3.selectbox("Documentos Pré-Admissionais", doc_opts, index=pre_idx)
 
-                    if st.button("💾 Salvar Todas as Alterações"):
-                        cpf_salvar = formatar_cpf(cpf_e)
-                        cnpj_salvar = formatar_cnpj(cnpj_e)
-                        dt_dem_salvar = str(data_demissao_e) if status_colab_e == "Demitido" and data_demissao_e else None
+                        adm_idx = doc_opts.index(dados[19]) if dados[19] in doc_opts else 0
+                        doc_adm_e = e4.selectbox("Documentos Admissionais", doc_opts, index=adm_idx)
 
-                        registrar_historico(matricula_sel, "Alteração de Cargo / Função", dados[5], cargo_e)
-                        registrar_historico(matricula_sel, "Alteração de Filial", filial_atual_nome, filial_e)
-                        registrar_historico(matricula_sel, "Alteração de Status", status_atual_colab, status_colab_e)
-                        registrar_historico(matricula_sel, "Alteração de ASO", dados[16], status_aso_e)
-                        registrar_historico(matricula_sel, "Status Cartão Alimentação", status_sol_atual, status_sol_va_e)
+                        if st.button("💾 Salvar Todas as Alterações"):
+                            cpf_salvar = formatar_cpf(cpf_e)
+                            cnpj_salvar = formatar_cnpj(cnpj_e)
+                            dt_dem_salvar = str(data_demissao_e) if status_colab_e == "Demitido" and data_demissao_e else None
 
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        c.execute('''
-                            UPDATE colaboradores
-                            SET matricula = ?, nome = ?, cpf = ?, rg = ?, funcao = ?, cnpj_empresa = ?,
-                                filial_id = ?, data_nascimento = ?, data_contratacao = ?, data_retorno_folga = ?,
-                                intervalo_folga_dias = ?, proxima_folga = ?, motivo_retorno = ?, he_50 = ?, he_100 = ?,
-                                saldo_cartao_alimentacao = ?, status_solicitacao_va = ?, status_aso = ?, doc_pessoais = ?,
-                                doc_preadmissionais = ?, doc_admissionais = ?, tipo_usuario_va = ?, 
-                                status_colaborador = ?, data_demissao = ?
-                            WHERE matricula = ?
-                        ''', (
-                            mat_e, nome_e, cpf_salvar, rg_e, cargo_e, cnpj_salvar,
-                            filiais_nome_para_id[filial_e], str(dt_nasc_e), str(data_contratacao_e),
-                            str(data_retorno_folga_e), intervalo_folga_e, str(proxima_folga_calc_e),
-                            motivo_retorno_e, he_50_e, he_100_e, saldo_va_e, status_sol_va_e, status_aso_e, doc_p_e, doc_pre_e, doc_adm_e,
-                            tipo_usuario_va_e, status_colab_e, dt_dem_salvar, matricula_sel
-                        ))
-                        conn.commit()
-                        conn.close()
-                        st.success("Cadastro atualizado com sucesso!")
-                        st.rerun()
+                            registrar_historico(matricula_sel, "Alteração de Cargo / Função", dados[5], cargo_e)
+                            registrar_historico(matricula_sel, "Alteração de Filial", filial_atual_nome, filial_e)
+                            registrar_historico(matricula_sel, "Alteração de Status", status_atual_colab, status_colab_e)
+                            registrar_historico(matricula_sel, "Alteração de ASO", dados[16], status_aso_e)
+                            registrar_historico(matricula_sel, "Status Cartão Alimentação", status_sol_atual, status_sol_va_e)
 
-                with tab_delete:
-                    st.warning(f"⚠️ Você está prestes a excluir **{dados[2]}** (Matrícula {dados[1]}).")
-                    confirma = st.checkbox("Confirmo que desejo excluir definitivamente.")
-                    if st.button("🗑️ Confirmar Exclusão", type="primary"):
-                        if confirma:
                             conn = sqlite3.connect(DB_FILE)
                             c = conn.cursor()
-                            c.execute("DELETE FROM colaboradores WHERE matricula = ?", (matricula_sel,))
+                            c.execute('''
+                                UPDATE colaboradores
+                                SET matricula = ?, nome = ?, cpf = ?, rg = ?, funcao = ?, cnpj_empresa = ?,
+                                    filial_id = ?, data_nascimento = ?, data_contratacao = ?, data_retorno_folga = ?,
+                                    intervalo_folga_dias = ?, proxima_folga = ?, motivo_retorno = ?, he_50 = ?, he_100 = ?,
+                                    saldo_cartao_alimentacao = ?, status_solicitacao_va = ?, status_aso = ?, doc_pessoais = ?,
+                                    doc_preadmissionais = ?, doc_admissionais = ?, tipo_usuario_va = ?, 
+                                    status_colaborador = ?, data_demissao = ?
+                                WHERE matricula = ?
+                            ''', (
+                                mat_e, nome_e, cpf_salvar, rg_e, cargo_e, cnpj_salvar,
+                                filiais_nome_para_id[filial_e], str(dt_nasc_e), str(data_contratacao_e),
+                                str(data_retorno_folga_e), intervalo_folga_e, str(proxima_folga_calc_e),
+                                motivo_retorno_e, he_50_e, he_100_e, saldo_va_e, status_sol_va_e, status_aso_e, doc_p_e, doc_pre_e, doc_adm_e,
+                                tipo_usuario_va_e, status_colab_e, dt_dem_salvar, matricula_sel
+                            ))
                             conn.commit()
                             conn.close()
-                            st.success("Colaborador excluído!")
+                            st.success("Cadastro atualizado com sucesso!")
                             st.rerun()
+
+                    with tab_delete:
+                        st.warning(f"⚠️ Você está prestes a excluir **{dados[2]}** (Matrícula {dados[1]}).")
+                        confirma = st.checkbox("Confirmo que desejo excluir definitivamente.")
+                        if st.button("🗑️ Confirmar Exclusão", type="primary"):
+                            if confirma:
+                                conn = sqlite3.connect(DB_FILE)
+                                c = conn.cursor()
+                                c.execute("DELETE FROM colaboradores WHERE matricula = ?", (matricula_sel,))
+                                conn.commit()
+                                conn.close()
+                                st.success("Colaborador excluído!")
+                                st.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 4: CADASTRO DE FILIAIS
