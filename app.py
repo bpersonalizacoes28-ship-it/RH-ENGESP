@@ -80,6 +80,8 @@ def init_db():
             tipo_usuario_va TEXT DEFAULT 'Já Usuário',
             motivo_retorno TEXT DEFAULT 'Folga',
             status_solicitacao_va TEXT DEFAULT 'Normal / Atualizado',
+            status_colaborador TEXT DEFAULT 'Ativo',
+            data_demissao DATE,
             FOREIGN KEY (filial_id) REFERENCES filiais (id)
         )
     ''')
@@ -241,7 +243,8 @@ if menu == "📊 Dashboard / Consulta":
                f.nome as filial, c.data_nascimento, c.data_contratacao,
                c.data_retorno_folga, c.intervalo_folga_dias, c.proxima_folga, c.motivo_retorno as "Tipo Retorno",
                c.he_50, c.he_100, c.saldo_cartao_alimentacao, c.tipo_usuario_va as "Tipo de Usuário",
-               c.status_solicitacao_va as "Status Cartão", c.status_aso, c.doc_pessoais, c.doc_preadmissionais, c.doc_admissionais
+               c.status_solicitacao_va as "Status Cartão", c.status_aso, c.doc_pessoais, c.doc_preadmissionais, c.doc_admissionais,
+               c.status_colaborador as "Status", c.data_demissao as "Data Demissão"
         FROM colaboradores c
         LEFT JOIN filiais f ON c.filial_id = f.id
     '''
@@ -264,7 +267,7 @@ if menu == "📊 Dashboard / Consulta":
     if df.empty:
         st.info("Nenhum colaborador cadastrado para esta seleção.")
     else:
-        colunas_data = ['data_nascimento', 'data_contratacao', 'data_retorno_folga', 'proxima_folga']
+        colunas_data = ['data_nascimento', 'data_contratacao', 'data_retorno_folga', 'proxima_folga', 'Data Demissão']
         for col in colunas_data:
             if col in df.columns:
                 df[col] = df[col].apply(formatar_data_br)
@@ -274,17 +277,21 @@ if menu == "📊 Dashboard / Consulta":
         if 'cnpj_empresa' in df.columns:
             df['cnpj_empresa'] = df['cnpj_empresa'].apply(formatar_cnpj)
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             filtro_status_aso = st.multiselect("Filtrar por Status ASO:", options=df['status_aso'].dropna().unique())
         with col2:
             filtro_cargo = st.multiselect("Filtrar por Cargo / Função:", options=df['Cargo / Função'].dropna().unique())
+        with col3:
+            filtro_status_colab = st.multiselect("Filtrar por Status (Ativo/Demitido):", options=df['Status'].dropna().unique(), default=["Ativo"])
 
         df_filtered = df.copy()
         if filtro_status_aso:
             df_filtered = df_filtered[df_filtered['status_aso'].isin(filtro_status_aso)]
         if filtro_cargo:
             df_filtered = df_filtered[df_filtered['Cargo / Função'].isin(filtro_cargo)]
+        if filtro_status_colab:
+            df_filtered = df_filtered[df_filtered['Status'].isin(filtro_status_colab)]
 
         st.subheader(f"Registros Exibidos ({len(df_filtered)})")
         st.dataframe(df_filtered, use_container_width=True)
@@ -320,6 +327,11 @@ elif menu == "➕ Novo Colaborador / Admissão":
         cnpj_empresa = c6.text_input("CNPJ da Empresa (somente números ou formatado)", value="37.608.361/0001-25")
         data_nascimento = c7.date_input("Data de Nascimento", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
+        status_colab_novo = st.selectbox("Status do Colaborador", ["Ativo", "Demitido"], index=0)
+        data_demissao_novo = None
+        if status_colab_novo == "Demitido":
+            data_demissao_novo = st.date_input("Data da Demissão", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+
         st.subheader("2. Dados Contratuais e Afastamento / Retorno")
         d1, d2, d3, d4 = st.columns(4)
         data_contratacao = d1.date_input("Data de Contratação", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
@@ -353,6 +365,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
             else:
                 cpf_formatado = formatar_cpf(cpf)
                 cnpj_formatado = formatar_cnpj(cnpj_empresa)
+                dt_dem_val = str(data_demissao_novo) if status_colab_novo == "Demitido" and data_demissao_novo else None
                 try:
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
@@ -362,14 +375,14 @@ elif menu == "➕ Novo Colaborador / Admissão":
                             data_nascimento, data_contratacao, data_retorno_folga,
                             intervalo_folga_dias, proxima_folga, motivo_retorno, he_50, he_100,
                             saldo_cartao_alimentacao, status_solicitacao_va, tipo_usuario_va, status_aso, doc_pessoais,
-                            doc_preadmissionais, doc_admissionais
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            doc_preadmissionais, doc_admissionais, status_colaborador, data_demissao
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         matricula, nome, cpf_formatado, rg, cargo, cnpj_formatado,
                         filiais_nome_para_id[filial_nome], str(data_nascimento),
                         str(data_contratacao), str(data_retorno_folga), intervalo_folga,
                         str(proxima_folga_calc), motivo_retorno, he_50, he_100, saldo_va, status_sol_va, tipo_usuario_va,
-                        status_aso, doc_pessoais, doc_preadmissionais, doc_admissionais
+                        status_aso, doc_pessoais, doc_preadmissionais, doc_admissionais, status_colab_novo, dt_dem_val
                     ))
                     conn.commit()
                     conn.close()
@@ -445,6 +458,17 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                     dt_nasc_val = parse_date_para_input(dados[8])
                     dt_nasc_e = u8.date_input("Data de Nascimento", value=dt_nasc_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
+                    # CAMPOS DE STATUS E DEMISSÃO
+                    col_st1, col_st2 = st.columns(2)
+                    status_atual_colab = dados[23] if len(dados) > 23 and dados[23] in ["Ativo", "Demitido"] else "Ativo"
+                    status_idx = ["Ativo", "Demitido"].index(status_atual_colab)
+                    status_colab_e = col_st1.selectbox("Status do Colaborador", ["Ativo", "Demitido"], index=status_idx)
+                    
+                    data_demissao_e = None
+                    if status_colab_e == "Demitido":
+                        dt_dem_val = parse_date_para_input(dados[24]) if len(dados) > 24 and dados[24] else date.today()
+                        data_demissao_e = col_st2.date_input("Data da Demissão", value=dt_dem_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+
                     st.subheader("2. Dados Contratuais e Retorno de Folga / Férias / Recesso")
                     d1, d2, d3, d4 = st.columns(4)
                     dt_contr_val = parse_date_para_input(dados[9])
@@ -500,9 +524,11 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                     if st.button("💾 Salvar Todas as Alterações"):
                         cpf_salvar = formatar_cpf(cpf_e)
                         cnpj_salvar = formatar_cnpj(cnpj_e)
+                        dt_dem_salvar = str(data_demissao_e) if status_colab_e == "Demitido" and data_demissao_e else None
 
                         registrar_historico(matricula_sel, "Alteração de Cargo / Função", dados[5], cargo_e)
                         registrar_historico(matricula_sel, "Alteração de Filial", filial_atual_nome, filial_e)
+                        registrar_historico(matricula_sel, "Alteração de Status", status_atual_colab, status_colab_e)
                         registrar_historico(matricula_sel, "Alteração de ASO", dados[16], status_aso_e)
                         registrar_historico(matricula_sel, "Status Cartão Alimentação", status_sol_atual, status_sol_va_e)
 
@@ -514,14 +540,15 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                                 filial_id = ?, data_nascimento = ?, data_contratacao = ?, data_retorno_folga = ?,
                                 intervalo_folga_dias = ?, proxima_folga = ?, motivo_retorno = ?, he_50 = ?, he_100 = ?,
                                 saldo_cartao_alimentacao = ?, status_solicitacao_va = ?, status_aso = ?, doc_pessoais = ?,
-                                doc_preadmissionais = ?, doc_admissionais = ?, tipo_usuario_va = ?
+                                doc_preadmissionais = ?, doc_admissionais = ?, tipo_usuario_va = ?, 
+                                status_colaborador = ?, data_demissao = ?
                             WHERE matricula = ?
                         ''', (
                             mat_e, nome_e, cpf_salvar, rg_e, cargo_e, cnpj_salvar,
                             filiais_nome_para_id[filial_e], str(dt_nasc_e), str(data_contratacao_e),
                             str(data_retorno_folga_e), intervalo_folga_e, str(proxima_folga_calc_e),
                             motivo_retorno_e, he_50_e, he_100_e, saldo_va_e, status_sol_va_e, status_aso_e, doc_p_e, doc_pre_e, doc_adm_e,
-                            tipo_usuario_va_e, matricula_sel
+                            tipo_usuario_va_e, status_colab_e, dt_dem_salvar, matricula_sel
                         ))
                         conn.commit()
                         conn.close()
@@ -673,12 +700,13 @@ elif menu == "💳 Pedido Saldo Alimentação":
                    c.saldo_cartao_alimentacao, c.tipo_usuario_va
             FROM colaboradores c
             LEFT JOIN filiais f ON c.filial_id = f.id
+            WHERE c.status_colaborador = 'Ativo'
             ORDER BY c.nome
         ''', conn)
         conn.close()
 
         if df_va_base.empty:
-            st.info("Nenhum colaborador cadastrado.")
+            st.info("Nenhum colaborador ativo cadastrado.")
         else:
             st.subheader("1. Seleção de Competência (Mês / Ano)")
             col_m1, col_m2 = st.columns(2)
@@ -699,7 +727,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
             df_filial_edit = df_va_base[df_va_base['filial'] == filial_va_escolhida].copy()
 
             if df_filial_edit.empty:
-                st.warning("Nenhum colaborador encontrado nesta filial.")
+                st.warning("Nenhum colaborador ativo encontrado nesta filial.")
             else:
                 st.write(f"Altere abaixo os valores de **Saldo (R$)** e o **Tipo de Usuário** para os colaboradores de **{filial_va_escolhida}**:")
                 
@@ -841,12 +869,12 @@ elif menu == "📥 Importar Excel por Filial":
                                 
                             c.execute('''
                                 INSERT OR IGNORE INTO colaboradores (
-                                    matricula, nome, funcao, filial_id, status_aso, cnpj_empresa
-                                ) VALUES (?, ?, ?, ?, ?, ?)
+                                    matricula, nome, funcao, filial_id, status_aso, cnpj_empresa, status_colaborador
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                             ''', (
                                 mat, nom, 
                                 str(row.get('funcao', row.get('Cargo', 'Não Informado'))),
-                                filial_id_val, 'Procurando Clínica', '37.608.361/0001-25'
+                                filial_id_val, 'Procurando Clínica', '37.608.361/0001-25', 'Ativo'
                             ))
                             if c.rowcount > 0:
                                 importados += 1
@@ -876,7 +904,8 @@ elif menu == "📤 Exportar Dados":
                c.data_contratacao as "Data Contratação", c.data_retorno_folga as "Data Retorno",
                c.intervalo_folga_dias as "Intervalo Dias", c.proxima_folga as "Próxima Previsão",
                c.he_50 as "HE 50%", c.he_100 as "HE 100%", c.saldo_cartao_alimentacao as "Saldo VA",
-               c.status_aso as "Status ASO", c.status_solicitacao_va as "Status Cartão"
+               c.status_aso as "Status ASO", c.status_solicitacao_va as "Status Cartão",
+               c.status_colaborador as "Status", c.data_demissao as "Data Demissão"
         FROM colaboradores c
         LEFT JOIN filiais f ON c.filial_id = f.id
     ''', conn)
