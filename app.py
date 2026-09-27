@@ -226,7 +226,6 @@ menu = st.sidebar.radio("Selecione o módulo:", [
     "💳 Pedido Saldo Alimentação",
     "📥 Importar Excel por Filial",
     "📤 Exportar Dados",
-    "📋 Controle de ASO e Documentos",
     "📜 Histórico de Alterações"
 ])
 
@@ -704,14 +703,12 @@ elif menu == "💳 Pedido Saldo Alimentação":
             else:
                 st.write(f"Altere abaixo os valores de **Saldo (R$)** e o **Tipo de Usuário** para os colaboradores de **{filial_va_escolhida}**:")
                 
-                # Prepara o DataFrame com colunas limpas para o editor
                 df_filial_edit['Saldo (R$)'] = df_filial_edit['saldo_cartao_alimentacao'].astype(float)
                 df_filial_edit['Tipo de Usuário'] = df_filial_edit['tipo_usuario_va'].fillna('Já Usuário')
                 
                 tabela_para_edicao = df_filial_edit[['matricula', 'cnpj_empresa', 'nome', 'cpf', 'Saldo (R$)', 'Tipo de Usuário']].copy()
                 tabela_para_edicao.columns = ['Matrícula', 'CNPJ', 'Nome do Colaborador', 'CPF', 'Saldo (R$)', 'Tipo de Usuário']
                 
-                # Tabela interativa onde o usuário pode alterar diretamente os valores
                 tabela_editada = st.data_editor(
                     tabela_para_edicao,
                     column_config={
@@ -731,7 +728,6 @@ elif menu == "💳 Pedido Saldo Alimentação":
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     
-                    # Remove histórico anterior do mesmo mês/filial para atualizar com os novos valores
                     c.execute("DELETE FROM historico_pedidos_va WHERE mes_ano = ? AND filial_nome = ?", (competencia_str, filial_va_escolhida))
                     
                     for idx, row in tabela_editada.iterrows():
@@ -742,14 +738,12 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         nome_val = row['Nome do Colaborador']
                         cpf_val = row['CPF']
                         
-                        # Atualiza permanentemente no cadastro do colaborador
                         c.execute('''
                             UPDATE colaboradores 
                             SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
                             WHERE matricula = ?
                         ''', (novo_saldo_val, novo_tipo_val, mat_original))
                         
-                        # Registra no histórico do pedido
                         c.execute('''
                             INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, saldo, tipo_usuario, data_registro)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -904,71 +898,7 @@ elif menu == "📤 Exportar Dados":
         )
 
 # ---------------------------------------------------------
-# MÓDULO 9: CONTROLE EXCLUSIVO DE ASO E DOCUMENTOS
-# ---------------------------------------------------------
-elif menu == "📋 Controle de ASO e Documentos":
-    st.title("📋 Controle Exclusivo de ASO e Documentos")
-    
-    conn = sqlite3.connect(DB_FILE)
-    df_aso = pd.read_sql_query('''
-        SELECT c.matricula, c.nome, c.funcao as "Cargo / Função", f.nome as filial, c.status_aso, 
-               c.doc_pessoais, c.doc_preadmissionais, c.doc_admissionais
-        FROM colaboradores c
-        LEFT JOIN filiais f ON c.filial_id = f.id
-        ORDER BY c.nome
-    ''', conn)
-    conn.close()
-
-    if df_aso.empty:
-        st.info("Nenhum colaborador cadastrado.")
-    else:
-        st.subheader("1. Atualização Rápida de Status")
-        opcoes_aso = df_aso['matricula'] + " - " + df_aso['nome']
-        colab_aso_sel = st.selectbox("Selecione o Colaborador:", opcoes_aso)
-
-        if colab_aso_sel:
-            mat_aso = colab_aso_sel.split(" - ")[0]
-            
-            conn = sqlite3.connect(DB_FILE)
-            c = conn.cursor()
-            c.execute("SELECT status_aso, doc_pessoais, doc_preadmissionais, doc_admissionais FROM colaboradores WHERE matricula = ?", (mat_aso,))
-            r_aso = c.fetchone()
-            conn.close()
-
-            st.markdown("---")
-            a1, a2 = st.columns(2)
-            
-            status_aso_opts = ["Procurando Clínica", "Exame Agendado", "Aguardando Resultado", "ASO Pronto"]
-            aso_idx = status_aso_opts.index(r_aso[0]) if r_aso[0] in status_aso_opts else 0
-            nov_aso = a1.selectbox("Status ASO", status_aso_opts, index=aso_idx)
-
-            doc_opts = ["Pendente", "Entregue", "Em Análise", "Concluído"]
-            p_idx = doc_opts.index(r_aso[1]) if r_aso[1] in doc_opts else 0
-            nov_doc_p = a2.selectbox("Documentos Pessoais", doc_opts, index=p_idx)
-
-            a3, a4 = st.columns(2)
-            pre_idx = doc_opts.index(r_aso[2]) if r_aso[2] in doc_opts else 0
-            nov_doc_pre = a3.selectbox("Documentos Pré-Admissionais", doc_opts, index=pre_idx)
-
-            adm_idx = doc_opts.index(r_aso[3]) if r_aso[3] in doc_opts else 0
-            nov_doc_adm = a4.selectbox("Documentos Admissionais", doc_opts, index=adm_idx)
-
-            if st.button("💾 Salvar Status ASO / Documentos"):
-                registrar_historico(mat_aso, "Alteração de Status ASO", r_aso[0], nov_aso)
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute('''
-                    UPDATE colaboradores 
-                    SET status_aso = ?, doc_pessoais = ?, doc_preadmissionais = ?, doc_admissionais = ?
-                    WHERE matricula = ?
-                ''', (nov_aso, nov_doc_p, nov_doc_pre, nov_doc_adm, mat_aso))
-                conn.commit()
-                conn.close()
-                st.success("Status atualizado com sucesso!")
-                st.rerun()
-
-# ---------------------------------------------------------
-# MÓDULO 10: HISTÓRICO DE ALTERAÇÕES
+# MÓDULO 9: HISTÓRICO DE ALTERAÇÕES
 # ---------------------------------------------------------
 elif menu == "📜 Histórico de Alterações":
     st.title("📜 Histórico Geral de Alterações")
