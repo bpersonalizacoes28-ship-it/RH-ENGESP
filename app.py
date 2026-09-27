@@ -10,14 +10,16 @@ import io
 st.set_page_config(page_title="Sistema de Gestão RH", layout="wide", initial_sidebar_state="expanded")
 
 # =========================================================
-# ESTILIZAÇÃO CSS (OCULTA BOTÕES DE EDIÇÃO/COMPARTILHAMENTO)
+# ESTILIZAÇÃO CSS (OCULTA COMPLETAMENTE O MENU NATIVO / GERENCIAR APLICATIVO)
 # =========================================================
 st.markdown("""
     <style>
     header {visibility: hidden !important;}
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
-
+    .stApp > header {display: none !important;}
+    [data-testid="stStatusWidget"] {visibility: hidden !important;}
+    
     .main { background-color: #f8f9fa; }
     h1 { color: #1e3a8a; font-family: 'Segoe UI', sans-serif; font-weight: 700; margin-bottom: 20px; }
     h2, h3 { color: #1e40af; font-family: 'Segoe UI', sans-serif; }
@@ -214,21 +216,8 @@ def get_cargos_cadastrados():
 
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
-# Lista de módulos do sistema
-lista_modulos = [
-    "📊 Dashboard / Consulta",
-    "➕ Novo Colaborador / Admissão",
-    "✏️ Editar Cadastro do Colaborador",
-    "🏢 Cadastro de Filiais",
-    "🔄 Transferência entre Filiais",
-    "💳 Pedido Saldo Alimentação",
-    "📥 Importar Excel por Filial",
-    "📤 Exportar Dados",
-    "📜 Histórico de Alterações"
-]
-
 # ---------------------------------------------------------
-# BARRA LATERAL (MENU PRINCIPAL COMPLETO)
+# BARRA LATERAL (MENU PRINCIPAL)
 # ---------------------------------------------------------
 st.sidebar.markdown("## 🏢 Painel da Empresa")
 st.sidebar.write("Acesso Livre - Gestão RH")
@@ -242,19 +231,17 @@ if logo_file is not None:
 
 st.sidebar.markdown("---")
 st.sidebar.title("📌 Menu Principal")
-menu_sidebar = st.sidebar.radio("Selecione o módulo:", lista_modulos, key="menu_sidebar_radio")
-
-st.sidebar.markdown("---")
-with st.sidebar.expander("⚙️ Navegação Alternativa (Topo)"):
-    usar_menu_topo = st.checkbox("Ativar menu no topo da página", value=False)
-
-# Determina o módulo ativo (prioriza a barra lateral, mas permite alternar pelo topo se necessário)
-if 'usar_menu_topo' in locals() and usar_menu_topo:
-    st.markdown("### 📌 Menu Principal (Navegação Superior)")
-    menu = st.selectbox("Selecione o módulo na página:", lista_modulos, key="menu_top_selectbox")
-    st.markdown("---")
-else:
-    menu = menu_sidebar
+menu = st.sidebar.radio("Selecione o módulo:", [
+    "📊 Dashboard / Consulta",
+    "➕ Novo Colaborador / Admissão",
+    "✏️ Editar Cadastro do Colaborador",
+    "🏢 Cadastro de Filiais",
+    "🔄 Transferência entre Filiais",
+    "💳 Pedido Saldo Alimentação",
+    "📥 Importar Excel por Filial",
+    "📤 Exportar Dados",
+    "📜 Histórico de Alterações"
+], key="menu_principal_sidebar")
 
 # ---------------------------------------------------------
 # MÓDULO 1: DASHBOARD (PAINEL DE GESTÃO)
@@ -409,7 +396,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                     st.error("Erro: Matrícula já cadastrada no sistema.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: EDITAR CADASTRO COMPLETO (Item 4 ASO/Doc removido)
+# MÓDULO 3: EDITAR CADASTRO COMPLETO
 # ---------------------------------------------------------
 elif menu == "✏️ Editar Cadastro do Colaborador":
     st.title("✏️ Editar Cadastro Completo do Colaborador")
