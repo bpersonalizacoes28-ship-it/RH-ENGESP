@@ -10,10 +10,21 @@ import io
 st.set_page_config(page_title="Sistema de Gestão ADM", layout="wide", initial_sidebar_state="expanded")
 
 # =========================================================
-# ESTILIZAÇÃO CSS (SEGURA - MANTÉM OS BOTÕES DO STREAMLIT VISÍVEIS)
+# ESTILIZAÇÃO CSS (OCULTA O BOTÃO GERENCIAR APLICATIVO / RODAPÉ / MENU NATIVO)
 # =========================================================
 st.markdown("""
     <style>
+    /* Oculta menu nativo, rodapé padrão e botões de gerenciamento de app flutuantes */
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    div[data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+    .stAppToolbar {visibility: hidden !important; display: none !important;}
+    
+    /* Remove botões flutuantes de "Manage App" no canto inferior */
+    button[kind="header"] {visibility: hidden !important; display: none !important;}
+    .viewerBadge_container__1QSob {visibility: hidden !important; display: none !important;}
+    
     .main { background-color: #f8f9fa; }
     h1 { color: #1e3a8a; font-family: 'Segoe UI', sans-serif; font-weight: 700; margin-bottom: 20px; }
     h2, h3 { color: #1e40af; font-family: 'Segoe UI', sans-serif; }
@@ -229,7 +240,7 @@ st.markdown("### 🏢 Sistema de Gestão ADM")
 menu = st.selectbox("📌 **SELECIONE O MÓDULO DESEJADO ABAIXO:**", lista_modulos, key="menu_principal_topo")
 st.markdown("---")
 
-# Barra lateral atualizada com "ENGESP"
+# Barra lateral com "ENGESP"
 st.sidebar.markdown("## 🏢 ENGESP")
 st.sidebar.write("Acesso Livre - Gestão ADM")
 st.sidebar.markdown("---")
