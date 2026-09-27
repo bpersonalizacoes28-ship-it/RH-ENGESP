@@ -361,15 +361,6 @@ elif menu == "➕ Novo Colaborador / Admissão":
         status_sol_va = s4.selectbox("Status Cartão Alimentação", ["Normal / Atualizado", "Solicitar Saldo"])
         tipo_usuario_va = s5.selectbox("Tipo de Usuário (Alimentação)", ["Já Usuário", "Novo Usuário"], index=0)
 
-        st.subheader("4. Controle de ASO e Documentos")
-        e1, e2 = st.columns(2)
-        status_aso = e1.selectbox("Status ASO", ["Procurando Clínica", "Exame Agendado", "Aguardando Resultado", "ASO Pronto"])
-        doc_pessoais = e2.selectbox("Documentos Pessoais", ["Pendente", "Entregue", "Em Análise"])
-        
-        e3, e4 = st.columns(2)
-        doc_preadmissionais = e3.selectbox("Documentos Pré-Admissionais", ["Pendente", "Entregue", "Em Análise"])
-        doc_admissionais = e4.selectbox("Documentos Admissionais", ["Pendente", "Entregue", "Concluído"])
-
         if st.button("💾 Finalizar Cadastro"):
             if not matricula or not nome:
                 st.error("Preencha os campos obrigatórios (Matrícula e Nome).")
@@ -393,7 +384,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                         filiais_nome_para_id[filial_nome], str(data_nascimento),
                         str(data_contratacao), str(data_retorno_folga), intervalo_folga,
                         str(proxima_folga_calc), motivo_retorno, he_50, he_100, saldo_va, status_sol_va, tipo_usuario_va,
-                        status_aso, doc_pessoais, doc_preadmissionais, doc_admissionais, status_colab_novo, dt_dem_val
+                        'Pendente', 'Pendente', 'Pendente', 'Pendente', status_colab_novo, dt_dem_val
                     ))
                     conn.commit()
                     conn.close()
@@ -885,7 +876,7 @@ elif menu == "📥 Importar Excel por Filial":
                             ''', (
                                 mat, nom, 
                                 str(row.get('funcao', row.get('Cargo', 'Não Informado'))),
-                                filial_id_val, 'Procurando Clínica', '37.608.361/0001-25', 'Ativo'
+                                filial_id_val, 'Pendente', '37.608.361/0001-25', 'Ativo'
                             ))
                             if c.rowcount > 0:
                                 importados += 1
