@@ -7,7 +7,7 @@ import re
 import io
 
 # Configuração inicial da página
-st.set_page_config(page_title="Sistema de Gestão RH", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Sistema de Gestão ADM", layout="wide", initial_sidebar_state="expanded")
 
 # =========================================================
 # ESTILIZAÇÃO CSS (SEGURA - MANTÉM OS BOTÕES DO STREAMLIT VISÍVEIS)
@@ -211,7 +211,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL (DISPONÍVEL NO TOPO DA TELA PARA FACILITAR)
+# MENU PRINCIPAL (DISPONÍVEL NO TOPO DA TELA)
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -225,13 +225,13 @@ lista_modulos = [
     "📜 Histórico de Alterações"
 ]
 
-st.markdown("### 🏢 Sistema de Gestão RH")
+st.markdown("### 🏢 Sistema de Gestão ADM")
 menu = st.selectbox("📌 **SELECIONE O MÓDULO DESEJADO ABAIXO:**", lista_modulos, key="menu_principal_topo")
 st.markdown("---")
 
-# Também mantemos espelhado na barra lateral para conveniência
-st.sidebar.markdown("## 🏢 Painel da Empresa")
-st.sidebar.write("Acesso Livre - Gestão RH")
+# Barra lateral atualizada com "ENGESP"
+st.sidebar.markdown("## 🏢 ENGESP")
+st.sidebar.write("Acesso Livre - Gestão ADM")
 st.sidebar.markdown("---")
 logo_file = st.sidebar.file_uploader("Enviar Logo da Empresa", type=["png", "jpg", "jpeg"])
 if logo_file is not None:
