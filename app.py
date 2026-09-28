@@ -190,11 +190,11 @@ def converter_para_date(valor):
                 return date(int(partes[0]), int(partes[1]), int(partes[2]))
     except Exception:
         pass
-    return None
+    return str(valor)
 
 def formatar_data_br(valor):
     dt = converter_para_date(valor)
-    if dt:
+    if isinstance(dt, date):
         return dt.strftime("%d/%m/%Y")
     return str(valor) if valor and not pd.isna(valor) else ""
 
@@ -574,6 +574,8 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         subtipo_mov_e = m2.selectbox("Subtipo", subtipo_opts, index=subtipo_opts.index(sub_atual))
                         
                         dt_mov_val = converter_para_date(dados[27]) if len(dados) > 27 and dados[27] else date.today()
+                        if not isinstance(dt_mov_val, date):
+                            dt_mov_val = date.today()
                         data_mov_e = m3.date_input("Data da Movimentação", value=dt_mov_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
                         c_contr1, c_contr2 = st.columns(2)
@@ -582,6 +584,8 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         tipo_contratacao_e = c_contr1.selectbox("Tipo de Contratação", contrato_opts, index=contrato_opts.index(contrato_atual))
                         
                         dt_adm_val = converter_para_date(dados[9]) if dados[9] else date.today()
+                        if not isinstance(dt_adm_val, date):
+                            dt_adm_val = date.today()
                         data_admissao_e = c_contr2.date_input("Data de Admissão", value=dt_adm_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
                         observacoes_e = st.text_area("Observações", value=dados[28] if len(dados) > 28 and dados[28] else "")
@@ -834,11 +838,11 @@ elif menu == "💳 Pedido Saldo Alimentação":
             st.dataframe(df_hist_va, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (MAPeamento Inteligente)
+# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (SEM DUPLICIDADE)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Excel por Filial":
-    st.title("📥 Importar Colaboradores por Filial (Automático e Inteligente)")
-    st.write("Selecione a filial de destino e faça o upload da planilha (qualquer formato). O sistema reconhecerá automaticamente os campos correspondentes.")
+    st.title("📥 Importar Colaboradores por Filial (Anti-Duplicidade)")
+    st.write("Selecione a filial e faça o upload da planilha. O sistema verificará se o colaborador já existe (por Matrícula): caso exista, atualiza as informações; caso não exista, acrescenta como novo registro.")
     
     if not filiais_nome_para_id:
         st.warning("Cadastre uma filial primeiro.")
@@ -854,21 +858,20 @@ elif menu == "📥 Importar Excel por Filial":
                 else:
                     df_import = pd.read_excel(uploaded_file, engine='openpyxl' if not nome_arq.endswith('.xls') else 'xlrd')
                 
-                # Normaliza os nomes das colunas para minúsculas e sem espaços extras para facilitar a busca
                 df_import.columns = [str(c).strip().lower() for c in df_import.columns]
                 
                 st.write("Prévia dos dados encontrados no arquivo:")
                 st.dataframe(df_import.head(), use_container_width=True)
                 
-                if st.button("Processar e Vincular Importação"):
+                if st.button("Processar e Sincronizar Importação"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     filial_id_val = filiais_nome_para_id[filial_import_nome]
-                    importados = 0
+                    novos = 0
+                    atualizados = 0
                     
                     for _, row in df_import.iterrows():
                         try:
-                            # Busca flexível por colunas comuns
                             mat = str(row.get('matricula', row.get('matrícula', row.get('mat', row.get('id', ''))))).strip()
                             nom = str(row.get('empregado', row.get('nome', row.get('funcionário', row.get('funcionario', ''))))).strip()
                             
@@ -877,9 +880,15 @@ elif menu == "📥 Importar Excel por Filial":
                             
                             t_mov = str(row.get('tipo', row.get('tipo_movimentacao', 'Entrada'))).strip()
                             sub_mov = str(row.get('subtipo', row.get('subtipo_movimentacao', 'Admissão'))).strip()
-                            dt_mov = str(row.get('data_movimentacao', row.get('data', date.today()))).strip()
+                            
+                            dt_mov_raw = row.get('data_movimentacao', row.get('data movimentacao', row.get('data', '')))
+                            dt_mov = str(dt_mov_raw).split()[0].strip() if pd.notna(dt_mov_raw) and str(dt_mov_raw).strip() != "" else str(date.today())
+                            
                             cargo = str(row.get('cargo', row.get('funcao', row.get('função', 'Não Informado')))).strip()
-                            dt_adm = str(row.get('data_admissao', row.get('admissao', date.today()))).strip()
+                            
+                            dt_adm_raw = row.get('data_admissao', row.get('data admissao', row.get('admissao', '')))
+                            dt_adm = str(dt_adm_raw).split()[0].strip() if pd.notna(dt_adm_raw) and str(dt_adm_raw).strip() != "" else str(date.today())
+                            
                             t_cont = str(row.get('tipo_contratacao', row.get('contratacao', row.get('contratação', 'CLT')))).strip()
                             cpf_val = formatar_cpf(row.get('cpf', ''))
                             rg_val = str(row.get('rg', '')).strip()
@@ -888,39 +897,46 @@ elif menu == "📥 Importar Excel por Filial":
                             status_c = "Demitido" if sub_mov.lower() in ["demissão", "demissao"] or t_mov.lower() == "saída" else "Ativo"
                             dt_dem = dt_mov if status_c == "Demitido" else None
 
-                            c.execute('''
-                                INSERT INTO colaboradores (
-                                    matricula, nome, cpf, rg, funcao, filial_id,
-                                    data_contratacao, status_colaborador, data_demissao,
-                                    tipo_movimentacao, subtipo_movimentacao, data_movimentacao,
-                                    observacoes, tipo_contratacao, cnpj_empresa
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                ON CONFLICT(matricula) DO UPDATE SET
-                                    nome = excluded.nome,
-                                    cpf = excluded.cpf,
-                                    rg = excluded.rg,
-                                    funcao = excluded.funcao,
-                                    filial_id = excluded.filial_id,
-                                    data_contratacao = excluded.data_contratacao,
-                                    status_colaborador = excluded.status_colaborador,
-                                    data_demissao = excluded.data_demissao,
-                                    tipo_movimentacao = excluded.tipo_movimentacao,
-                                    subtipo_movimentacao = excluded.subtipo_movimentacao,
-                                    data_movimentacao = excluded.data_movimentacao,
-                                    observacoes = excluded.observacoes,
-                                    tipo_contratacao = excluded.tipo_contratacao
-                            ''', (
-                                mat, nom, cpf_val, rg_val, cargo, filial_id_val,
-                                dt_adm, status_c, dt_dem, t_mov, sub_mov,
-                                dt_mov, obs_val, t_cont, "37.608.361/0001-25"
-                            ))
-                            importados += 1
+                            # Verifica se o colaborador já existe pela matrícula
+                            c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
+                            existe = c.fetchone()
+
+                            if existe:
+                                # Atualiza as informações do colaborador existente
+                                c.execute('''
+                                    UPDATE colaboradores SET
+                                        nome = ?, cpf = ?, rg = ?, funcao = ?, filial_id = ?,
+                                        data_contratacao = ?, status_colaborador = ?, data_demissao = ?,
+                                        tipo_movimentacao = ?, subtipo_movimentacao = ?, data_movimentacao = ?,
+                                        observacoes = ?, tipo_contratacao = ?
+                                    WHERE matricula = ?
+                                ''', (
+                                    nom, cpf_val, rg_val, cargo, filial_id_val,
+                                    dt_adm, status_c, dt_dem, t_mov, sub_mov,
+                                    dt_mov, obs_val, t_cont, mat
+                                ))
+                                atualizados += 1
+                            else:
+                                # Insere novo registro se não existir
+                                c.execute('''
+                                    INSERT INTO colaboradores (
+                                        matricula, nome, cpf, rg, funcao, filial_id,
+                                        data_contratacao, status_colaborador, data_demissao,
+                                        tipo_movimentacao, subtipo_movimentacao, data_movimentacao,
+                                        observacoes, tipo_contratacao, cnpj_empresa
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', (
+                                    mat, nom, cpf_val, rg_val, cargo, filial_id_val,
+                                    dt_adm, status_c, dt_dem, t_mov, sub_mov,
+                                    dt_mov, obs_val, t_cont, "37.608.361/0001-25"
+                                ))
+                                novos += 1
                         except Exception:
                             pass
                             
                     conn.commit()
                     conn.close()
-                    st.success(f"Importação concluída com sucesso! {importados} registros integrados e atualizados na filial {filial_import_nome}.")
+                    st.success(f"Sincronização concluída! {novos} novos colaboradores cadastrados e {atualizados} registros atualizados sem duplicidade na filial {filial_import_nome}.")
             except Exception as e:
                 st.error(f"Erro ao ler o arquivo: {e}")
 
