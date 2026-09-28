@@ -36,6 +36,8 @@ str_lit.markdown("""
         padding: 8px 16px;
     }
     .stButton>button:hover { background-color: #1d4ed8; color: white; }
+    .day-sabado { background-color: #fef08a !important; padding: 4px; border-radius: 4px; font-weight: bold; }
+    .day-domingo-feriado { background-color: #fecaca !important; padding: 4px; border-radius: 4px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -128,6 +130,16 @@ def init_db():
             saldo REAL,
             tipo_usuario TEXT,
             data_registro DATETIME
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS folha_ponto (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            matricula TEXT,
+            mes_ano TEXT,
+            total_50 REAL DEFAULT 0,
+            total_100 REAL DEFAULT 0,
+            dados_json TEXT
         )
     ''')
     conn.commit()
@@ -228,6 +240,43 @@ def formatar_data_br(valor):
     except Exception:
         return str(valor)
 
+def get_feriados_nacionais(ano):
+    # Feriados fixos e principais do Brasil
+    feriados = [
+        date(ano, 1, 1),   # Confraternização Universal
+        date(ano, 4, 21),  # Tiradentes
+        date(ano, 5, 1),   # Dia do Trabalho
+        date(ano, 9, 7),   # Independência do Brasil
+        date(ano, 10, 12), # Nossa Senhora Aparecida
+        date(ano, 11, 2),  # Finados
+        date(ano, 11, 15), # Proclamação da República
+        date(ano, 11, 20), # Consciência Negra
+        date(ano, 12, 25), # Natal
+    ]
+    
+    # Cálculo aproximado da Páscoa (Algoritmo de Meeus/Jones/Butcher) para Corpus Christi e Sexta-Feira Santa
+    a = ano % 19
+    b = ano // 100
+    c = ano % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    L = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * L) // 451
+    mes_pascoa = (h + L - 7 * m + 114) // 31
+    dia_pascoa = ((h + L - 7 * m + 114) % 31) + 1
+    data_pascoa = date(ano, mes_pascoa, dia_pascoa)
+    
+    sexta_santa = data_pascoa - timedelta(days=2)
+    corpus_christi = data_pascoa + timedelta(days=60)
+    
+    feriados.extend([sexta_santa, corpus_christi])
+    return feriados
+
 def get_filiais_dict():
     conn = sqlite3.connect(DB_FILE)
     df = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
@@ -256,7 +305,8 @@ lista_modulos = [
     "💳 Pedido Saldo Alimentação",
     "📥 Importar Colaboradores por Filial",
     "📤 Exportar Dados",
-    "📜 Histórico de Alterações"
+    "📜 Histórico de Alterações",
+    "⏱️ Folha de Ponto"
 ]
 
 str_lit.markdown("### 🏢 Sistema de Gestão ADM")
@@ -390,7 +440,7 @@ elif menu == "🏢 Filiais":
             )
 
 # ---------------------------------------------------------
-# MÓDULO 3: COLABORADORES
+# MÓDULO 3: COLABORADORES (Com seleção para deleção e datas em DD/MM/AAAA)
 # ---------------------------------------------------------
 elif menu == "👥 Colaboradores":
     str_lit.title("👥 Consulta de Colaboradores por Filial")
@@ -440,10 +490,36 @@ elif menu == "👥 Colaboradores":
 
         str_lit.metric("Colaboradores Listados", len(df_c_res))
         str_lit.markdown("---")
+        
         if df_c_res.empty:
             str_lit.info("Nenhum colaborador encontrado para esta seleção.")
         else:
-            str_lit.dataframe(df_c_res, use_container_width=True)
+            # Adicionar coluna de seleção para exclusão
+            df_c_res.insert(0, "Selecionar", False)
+            
+            str_lit.write("Marque a caixa 'Selecionar' nos registros que deseja remover da lista (ex: demitidos):")
+            df_editavel = str_lit.data_editor(
+                df_c_res,
+                column_config={
+                    "Selecionar": str_lit.column_config.CheckboxColumn("Selecionar", required=True)
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            matriculas_para_excluir = df_editavel[df_editavel["Selecionar"] == True]["Matrícula"].tolist()
+            
+            if matriculas_para_excluir:
+                str_lit.warning(f"⚠️ Você selecionou {len(matriculas_para_excluir)} colaborador(es) para exclusão.")
+                if str_lit.button("🗑️ Deletar Colaboradores Selecionados", type="primary"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    for mat_exc in matriculas_para_excluir:
+                        c.execute("DELETE FROM colaboradores WHERE matricula = ?", (mat_exc,))
+                    conn.commit()
+                    conn.close()
+                    str_lit.success("Colaboradores selecionados excluídos com sucesso!")
+                    str_lit.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 4: NOVO COLABORADOR / ADMISSÃO
@@ -1032,3 +1108,151 @@ elif menu == "📜 Histórico de Alterações":
         str_lit.info("Sem histórico.")
     else:
         str_lit.dataframe(df_hist, use_container_width=True)
+
+# ---------------------------------------------------------
+# MÓDULO 12: FOLHA DE PONTO
+# ---------------------------------------------------------
+elif menu == "⏱️ Folha de Ponto":
+    str_lit.title("⏱️ Módulo de Folha de Ponto e Horas Extras")
+    
+    conn = sqlite3.connect(DB_FILE)
+    df_colab_ponto = pd.read_sql_query("SELECT matricula, nome FROM colaboradores WHERE status_colaborador = 'Ativo' ORDER BY nome", conn)
+    conn.close()
+
+    if df_colab_ponto.empty:
+        str_lit.warning("⚠️ Nenhum colaborador ativo cadastrado para lançar ponto.")
+    else:
+        c_p1, c_p2 = str_lit.columns(2)
+        meses_lista = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+        mes_escolhido_ponto = c_p1.selectbox("Selecione o Mês:", meses_lista, index=datetime.now().month - 1)
+        
+        anos_lista = [str(y) for y in range(datetime.now().year - 1, datetime.now().year + 3)]
+        ano_escolhido_ponto = int(c_p2.selectbox("Selecione o Ano:", anos_lista, index=1))
+        
+        mes_num = meses_lista.index(mes_escolhido_ponto) + 1
+        competencia_ponto = f"{mes_escolhido_ponto} / {ano_escolhido_ponto}"
+
+        # Descobrir quantidade de dias no mês selecionado
+        if mes_num == 12:
+            ultimo_dia = date(ano_escolhido_ponto + 1, 1, 1) - timedelta(days=1)
+        else:
+            ultimo_dia = date(ano_escolhido_ponto, mes_num + 1, 1) - timedelta(days=1)
+        total_dias_mes = ultimo_dia.day
+
+        feriados_ano = get_feriados_nacionais(ano_escolhido_ponto)
+
+        str_lit.markdown("---")
+        opcoes_colab_ponto = df_colab_ponto['matricula'] + " - " + df_colab_ponto['nome']
+        colab_sel_ponto = str_lit.selectbox("Selecione o Colaborador:", options=opcoes_colab_ponto)
+
+        if colab_sel_ponto:
+            mat_ponto = colab_sel_ponto.split(" - ")[0]
+            nome_ponto = colab_sel_ponto.split(" - ")[1]
+
+            # Buscar dados salvos anteriores se existirem
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (mat_ponto, competencia_ponto))
+            res_salvo = cursor.fetchone()
+            conn.close()
+
+            import json
+            dados_salvos = json.loads(res_salvo[0]) if res_salvo else {}
+
+            str_lit.subheader(f"Apontamento para: {nome_ponto} ({competencia_ponto})")
+            str_lit.write("Preencha a quantidade de horas e minutos trabalhados por dia (ex: 8:00 ou 2:30). Sábados aparecem em amarelo, Domingos e Feriados em vermelho.")
+
+            dias_semana_pt = {0: "Seg", 1: "Ter", 2: "Qua", 3: "Qui", 4: "Sex", 5: "Sáb", 6: "Dom"}
+            
+            tabela_dias_dados = []
+            for d in range(1, total_dias_mes + 1):
+                dt_atual = date(ano_escolhido_ponto, mes_num, d)
+                dia_sem_num = dt_atual.weekday()
+                nome_dia_sem = dias_semana_pt[dia_sem_num]
+                
+                is_feriado = dt_atual in feriados_ano
+                is_domingo = (dia_sem_num == 6)
+                is_sabado = (dia_sem_num == 5)
+                
+                if is_domingo or is_feriado:
+                    tipo_dia = "Domingo / Feriado"
+                elif is_sabado:
+                    tipo_dia = "Sábado"
+                else:
+                    tipo_dia = "Semana"
+
+                val_padrao = dados_salvos.get(str(d), "0:00")
+                tabela_dias_dados.append({
+                    "Dia": f"{d:02d}/{mes_num:02d}",
+                    "Semana": nome_dia_sem,
+                    "Tipo": tipo_dia,
+                    "Horas (HH:MM)": val_padrao
+                })
+
+            df_apontamento = pd.DataFrame(tabela_dias_dados)
+
+            # Exibição interativa
+            apontamento_editado = str_lit.data_editor(
+                df_apontamento,
+                column_config={
+                    "Dia": str_lit.column_config.TextColumn("Data", disabled=True),
+                    "Semana": str_lit.column_config.TextColumn("Dia da Semana", disabled=True),
+                    "Tipo": str_lit.column_config.TextColumn("Classificação", disabled=True),
+                    "Horas (HH:MM)": str_lit.column_config.TextColumn("Horas Trabalhadas", required=True)
+                },
+                hide_index=True,
+                use_container_width=True,
+                key=f"ponto_editor_{mat_ponto}_{competencia_ponto}"
+            )
+
+            # Cálculo automático de Totais (Total 50% = Seg a Sáb / Total 100% = Dom e Feriados)
+            total_minutos_50 = 0
+            total_minutos_100 = 0
+            dicionario_salvar = {}
+
+            for idx, row in apontamento_editado.iterrows():
+                dia_str = row["Dia"].split("/")[0]
+                dicionario_salvar[dia_str] = row["Horas (HH:MM)"]
+                
+                # Converter HH:MM para minutos
+                h_str = str(row["Horas (HH:MM)"]).strip()
+                minutos_dia = 0
+                try:
+                    if ":" in h_str:
+                        partes_h = h_str.split(":")
+                        minutos_dia = int(partes_h[0]) * 60 + int(partes_h[1])
+                    else:
+                        minutos_dia = int(float(h_str) * 60)
+                except Exception:
+                    minutos_dia = 0
+
+                if row["Tipo"] in ["Semana", "Sábado"]:
+                    total_minutos_50 += minutos_dia
+                else:
+                    total_minutos_100 += minutos_dia
+
+            # Formatar minutos de volta para horas e minutos
+            horas_50 = total_minutos_50 // 60
+            mins_50 = total_minutos_50 % 60
+            str_total_50 = f"{horas_50}h {mins_50:02d}m"
+
+            horas_100 = total_minutos_100 // 60
+            mins_100 = total_minutos_100 % 60
+            str_total_100 = f"{horas_100}h {mins_100:02d}m"
+
+            str_lit.markdown("---")
+            col_tot1, col_tot2 = str_lit.columns(2)
+            col_tot1.metric("TOTAL 50% (Segunda a Sábado)", str_total_50)
+            col_tot2.metric("TOTAL 100% (Domingo e Feriado)", str_total_100)
+
+            if str_lit.button("💾 Salvar Apontamento de Ponto"):
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (mat_ponto, competencia_ponto))
+                cursor.execute('''
+                    INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (mat_ponto, competencia_ponto, total_minutos_50 / 60.0, total_minutos_100 / 60.0, json.dumps(dicionario_salvar)))
+                conn.commit()
+                conn.close()
+                str_lit.success("Apontamento de ponto salvo com sucesso!")
