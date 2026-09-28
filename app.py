@@ -169,17 +169,18 @@ def registrar_historico(matricula, tipo, antigo, novo):
         conn.close()
 
 def parse_data_rigorosa(valor):
-    """Tratamento blindado e absoluto para datas do Excel ou banco."""
-    if valor is None or pd.isna(valor) or str(valor).strip() in ["", "None", "NaT", "nan", "NAT"]:
+    """Tratamento ultra-robusto para datas do Excel (texto, barras, hífens ou números seriais)."""
+    if valor is None or pd.isna(valor) or str(valor).strip() in ["", "None", "NaT", "nan", "NAT", "0", "0.0"]:
         return str(date.today())
     
     # Se for número serial do Excel
-    if isinstance(valor, (int, float)) and valor > 1000:
-        try:
+    try:
+        val_float = float(valor)
+        if val_float > 1000:
             dt_base = datetime(1899, 12, 30)
-            return (dt_base + timedelta(days=float(valor))).strftime("%Y-%m-%d")
-        except Exception:
-            pass
+            return (dt_base + timedelta(days=val_float)).strftime("%Y-%m-%d")
+    except Exception:
+        pass
 
     if isinstance(valor, (date, datetime)):
         return valor.strftime("%Y-%m-%d")
@@ -512,7 +513,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                     str_lit.error("Erro: Matrícula já cadastrada no sistema.")
 
 # ---------------------------------------------------------
-# MÓDULO 5: EDITAR CADASTRO DO COLABORADOR (ATUALIZADO)
+# MÓDULO 5: EDITAR CADASTRO DO COLABORADOR
 # ---------------------------------------------------------
 elif menu == "✏️ Editar Cadastro do Colaborador":
     str_lit.title("✏️ Editar Cadastro do Colaborador")
@@ -531,7 +532,6 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
     else:
         str_lit.subheader("🔍 Localize o colaborador")
         
-        # Filtrar por Filial primeiro (conforme solicitado)
         lista_filiais_edit = ["Todas as Filiais"] + sorted(df_colab_geral['filial'].dropna().unique().tolist())
         filial_escolhida_edicao = str_lit.selectbox("Filtrar por Filial:", options=lista_filiais_edit)
         
@@ -539,7 +539,6 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
         if filial_escolhida_edicao != "Todas as Filiais":
             df_edit_filtered = df_edit_filtered[df_edit_filtered['filial'] == filial_escolhida_edicao]
             
-        # Exibe todos os colaboradores referentes a essa seleção de filial
         if df_edit_filtered.empty:
             str_lit.warning("Nenhum colaborador encontrado para esta filial.")
         else:
@@ -826,11 +825,11 @@ elif menu == "💳 Pedido Saldo Alimentação":
             str_lit.dataframe(df_hist_va, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (CORRIGIDO RIGOROSAMENTE)
+# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (100% BLINDADO E FLEXÍVEL)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Excel por Filial":
-    str_lit.title("📥 Importar Colaboradores por Filial (Leitura Rigorosa de Datas)")
-    str_lit.write("Selecione a filial e faça o upload da planilha. As datas de Admissão e Movimentação serão extraídas rigorosamente.")
+    str_lit.title("📥 Importar Colaboradores por Filial (Leitura Flexível e Robusta)")
+    str_lit.write("Selecione a filial e faça o upload da planilha. O sistema reconhece automaticamente qualquer variação nos nomes das colunas e formatos de data.")
     
     if not filiais_nome_para_id:
         str_lit.warning("Cadastre uma filial primeiro.")
@@ -846,9 +845,6 @@ elif menu == "📥 Importar Excel por Filial":
                 else:
                     df_import = pd.read_excel(uploaded_file, engine='openpyxl' if not nome_arq.endswith('.xls') else 'xlrd')
                 
-                # Normaliza os nomes das colunas de forma limpa (remove espaços e converte para minúsculas)
-                df_import.columns = [str(c).strip().lower() for c in df_import.columns]
-                
                 str_lit.write("Prévia dos dados encontrados no arquivo:")
                 str_lit.dataframe(df_import.head(), use_container_width=True)
                 
@@ -861,40 +857,100 @@ elif menu == "📥 Importar Excel por Filial":
                     
                     for _, row in df_import.iterrows():
                         try:
-                            # Busca segura de chaves por correspondência exata ou parcial de colunas
-                            row_dict = {str(k).strip().lower(): v for k, v in row.to_dict().items()}
+                            # Converte todas as chaves da linha removendo acentos, espaços e convertendo para minúsculas
+                            row_dict = {}
+                            for k, v in row.to_dict().items():
+                                if pd.notna(k):
+                                    k_limpo = str(k).strip().lower()
+                                    # Normalizações comuns para ignorar acentuação e variações de digitação
+                                    k_limpo = k_limpo.replace('á', 'a').replace('à', 'a').replace('ã', 'a').replace('â', 'a')
+                                    k_limpo = k_limpo.replace('é', 'e').replace('ê', 'e')
+                                    k_limpo = k_limpo.replace('í', 'i')
+                                    k_limpo = k_limpo.replace('ó', 'o').replace('ô', 'o').replace('õ', 'o')
+                                    k_limpo = k_limpo.replace('ú', 'u')
+                                    k_limpo = k_limpo.replace('ç', 'c')
+                                    row_dict[k_limpo] = v
+
+                            # Busca flexível por qualquer sinônimo para Matrícula
+                            mat = ""
+                            for k_cand in ['matricula', 'mat', 'id', 'codigo', 'cod']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    mat = str(row_dict[k_cand]).strip()
+                                    if mat.endswith('.0'):  # Remove casas decimais indesejadas do Excel
+                                        mat = mat[:-2]
+                                    break
                             
-                            mat = str(row_dict.get('matricula', row_dict.get('matrícula', row_dict.get('mat', row_dict.get('id', ''))))).strip()
-                            nom = str(row_dict.get('empregado', row_dict.get('nome', row_dict.get('funcionário', row_dict.get('funcionario', ''))))).strip()
+                            # Busca flexível por qualquer sinônimo para Nome / Empregado
+                            nom = ""
+                            for k_cand in ['empregado', 'nome', 'funcionario', 'colaborador', 'trab']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    nom = str(row_dict[k_cand]).strip()
+                                    break
                             
                             if not mat or mat == 'nan' or not nom or nom == 'nan':
                                 continue
                             
-                            t_mov = str(row_dict.get('tipo', row_dict.get('tipo_movimentacao', row_dict.get('tipo movimentacao', 'Entrada')))).strip()
-                            sub_mov = str(row_dict.get('subtipo', row_dict.get('subtipo_movimentacao', row_dict.get('subtipo movimentacao', 'Admissão')))).strip()
+                            # Tipo e Subtipo de Movimentação
+                            t_mov = "Entrada"
+                            for k_cand in ['tipo', 'tipomovimentacao', 'movimento']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    t_mov = str(row_dict[k_cand]).strip()
+                                    break
+                                    
+                            sub_mov = "Admissão"
+                            for k_cand in ['subtipo', 'subtipomovimentacao', 'subtipo movimentacao']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    sub_mov = str(row_dict[k_cand]).strip()
+                                    break
                             
-                            # Extração blindada da Data de Movimentação
+                            # Data de Movimentação
                             raw_dt_mov = None
-                            for key_candidate in ['data_movimentacao', 'data movimentacao', 'datamovimentacao', 'data']:
-                                if key_candidate in row_dict:
-                                    raw_dt_mov = row_dict[key_candidate]
+                            for k_cand in ['datamovimentacao', 'data', 'dtmovimentacao']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    raw_dt_mov = row_dict[k_cand]
                                     break
                             dt_mov = parse_data_rigorosa(raw_dt_mov)
                             
-                            cargo = str(row_dict.get('cargo', row_dict.get('funcao', row_dict.get('função', 'Não Informado')))).strip()
+                            # Cargo / Função
+                            cargo = "Não Informado"
+                            for k_cand in ['cargo', 'funcao', 'funçao', 'ocupacao']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    cargo = str(row_dict[k_cand]).strip()
+                                    break
                             
-                            # Extração blindada da Data de Admissão
+                            # Data de Admissão
                             raw_dt_adm = None
-                            for key_candidate in ['data_admissao', 'data admissao', 'dataadmissao', 'admissao', 'admissão']:
-                                if key_candidate in row_dict:
-                                    raw_dt_adm = row_dict[key_candidate]
+                            for k_cand in ['dataadmissao', 'admissao', 'dtadmissao', 'contratacao']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    raw_dt_adm = row_dict[k_cand]
                                     break
                             dt_adm = parse_data_rigorosa(raw_dt_adm)
                             
-                            t_cont = str(row_dict.get('tipo_contratacao', row_dict.get('contratacao', row_dict.get('contratação', 'CLT')))).strip()
-                            cpf_val = formatar_cpf(row_dict.get('cpf', ''))
-                            rg_val = str(row_dict.get('rg', '')).strip()
-                            obs_val = str(row_dict.get('observacoes', row_dict.get('obs', ''))).strip()
+                            # Tipo de Contratação
+                            t_cont = "CLT"
+                            for k_cand in ['contratacao', 'tipocontratacao', 'regime']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    t_cont = str(row_dict[k_cand]).strip()
+                                    break
+                            
+                            # Outros dados opcionais
+                            cpf_val = ""
+                            for k_cand in ['cpf']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    cpf_val = formatar_cpf(row_dict[k_cand])
+                                    break
+                                    
+                            rg_val = ""
+                            for k_cand in ['rg']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    rg_val = str(row_dict[k_cand]).strip()
+                                    break
+                                    
+                            obs_val = ""
+                            for k_cand in ['observacoes', 'obs', 'observacao']:
+                                if k_cand in row_dict and pd.notna(row_dict[k_cand]):
+                                    obs_val = str(row_dict[k_cand]).strip()
+                                    break
                             
                             status_c = "Demitido" if sub_mov.lower() in ["demissão", "demissao"] or t_mov.lower() == "saída" else "Ativo"
                             dt_dem = dt_mov if status_c == "Demitido" else None
@@ -935,7 +991,7 @@ elif menu == "📥 Importar Excel por Filial":
                             
                     conn.commit()
                     conn.close()
-                    str_lit.success(f"Sincronização concluída! {novos} novos colaboradores cadastrados e {atualizados} registros atualizados com sucesso na filial {filial_import_nome}, respeitando integralmente as datas.")
+                    str_lit.success(f"Sincronização concluída! {novos} novos colaboradores cadastrados e {atualizados} atualizados com sucesso na filial {filial_import_nome}.")
             except Exception as e:
                 str_lit.error(f"Erro ao ler o arquivo: {e}")
 
