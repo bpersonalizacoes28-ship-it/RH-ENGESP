@@ -1,24 +1,22 @@
 ﻿import sqlite3
 import pandas as pd
-import streamlit as st
+import streamlit as str_lit
 from datetime import datetime, date, timedelta
 from PIL import Image
 import re
 import io
 
-# Configuração inicial da página
-st.set_page_config(page_title="Sistema de Gestão ADM - ENGESP", layout="wide", initial_sidebar_state="expanded")
+str_lit.set_page_config(page_title="Sistema de Gestão ADM - ENGESP", layout="wide", initial_sidebar_state="expanded")
 
 # =========================================================
-# ESTILIZAÇÃO CSS (OCULTA GERENCIAR APLICATIVO E RODAPÉ)
+# ESTILIZAÇÃO CSS
 # =========================================================
-st.markdown("""
+str_lit.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
     div[data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-    
     .main { background-color: #f8f9fa; }
     h1 { color: #1e3a8a; font-family: 'Segoe UI', sans-serif; font-weight: 700; margin-bottom: 20px; }
     h2, h3 { color: #1e40af; font-family: 'Segoe UI', sans-serif; }
@@ -138,7 +136,7 @@ def init_db():
 init_db()
 
 # ---------------------------------------------------------
-# FUNÇÕES DE FORMATAÇÃO E MASCARAS (BR)
+# FUNÇÕES DE FORMATAÇÃO E TRATAMENTO RIGOROSO DE DATAS
 # ---------------------------------------------------------
 def formatar_cpf(valor):
     if not valor or pd.isna(valor):
@@ -146,7 +144,7 @@ def formatar_cpf(valor):
     nums = re.sub(r'\D', '', str(valor))
     if len(nums) == 11:
         return f"{nums[:3]}.{nums[3:6]}.{nums[6:9]}-{nums[9:]}"
-    return str(valor)
+    return str(valor).strip()
 
 def formatar_cnpj(valor):
     if not valor or pd.isna(valor):
@@ -154,7 +152,7 @@ def formatar_cnpj(valor):
     nums = re.sub(r'\D', '', str(valor))
     if len(nums) == 14:
         return f"{nums[:2]}.{nums[2:5]}.{nums[5:8]}/{nums[8:12]}-{nums[12:]}"
-    return str(valor)
+    return str(valor).strip()
 
 MIN_DATE = date(1900, 1, 1)
 MAX_DATE = date(2100, 12, 31)
@@ -171,11 +169,11 @@ def registrar_historico(matricula, tipo, antigo, novo):
         conn.close()
 
 def parse_data_rigorosa(valor):
-    """Converte com total precisão datas vindas do Excel (texto, número serial ou timestamp)."""
-    if valor is None or pd.isna(valor) or str(valor).strip() in ["", "None", "NaT", "nan"]:
+    """Tratamento blindado e absoluto para datas do Excel ou banco."""
+    if valor is None or pd.isna(valor) or str(valor).strip() in ["", "None", "NaT", "nan", "NAT"]:
         return str(date.today())
     
-    # Se for número serial do Excel (ex: 45284)
+    # Se for número serial do Excel
     if isinstance(valor, (int, float)) and valor > 1000:
         try:
             dt_base = datetime(1899, 12, 30)
@@ -183,28 +181,23 @@ def parse_data_rigorosa(valor):
         except Exception:
             pass
 
-    # Se já for objeto date ou datetime
     if isinstance(valor, (date, datetime)):
         return valor.strftime("%Y-%m-%d")
     
     val_str = str(valor).split()[0].strip()
     
-    # Tenta formatos comuns de string
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%d.%m.%Y", "%Y.%m.%d"):
         try:
             return datetime.strptime(val_str, fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
             
-    # Tentativa manual para barras ou traços
     try:
         if "/" in val_str:
             partes = val_str.split("/")
             if len(partes) == 3:
-                # Assume DD/MM/YYYY
                 if len(partes[2]) == 4:
                     return f"{partes[2]}-{partes[1].zfill(2)}-{partes[0].zfill(2)}"
-                # Assume YYYY/MM/DD
                 elif len(partes[0]) == 4:
                     return f"{partes[0]}-{partes[1].zfill(2)}-{partes[2].zfill(2)}"
         elif "-" in val_str:
@@ -267,25 +260,24 @@ lista_modulos = [
     "📜 Histórico de Alterações"
 ]
 
-st.markdown("### 🏢 Sistema de Gestão ADM")
-menu = st.selectbox("📌 **SELECIONE O MÓDULO DESEJADO ABAIXO:**", lista_modulos, key="menu_principal_topo")
-st.markdown("---")
+str_lit.markdown("### 🏢 Sistema de Gestão ADM")
+menu = str_lit.selectbox("📌 **SELECIONE O MÓDULO DESEJADO ABAIXO:**", lista_modulos, key="menu_principal_topo")
+str_lit.markdown("---")
 
-st.sidebar.markdown("## 🏢 ENGESP")
-st.sidebar.write("Engenharia São Patrício - Gestão ADM")
-st.sidebar.markdown("---")
-logo_file = st.sidebar.file_uploader("Enviar Logo da Empresa", type=["png", "jpg", "jpeg"])
+str_lit.sidebar.markdown("## 🏢 ENGESP")
+str_lit.sidebar.write("Engenharia São Patrício - Gestão ADM")
+str_lit.sidebar.markdown("---")
+logo_file = str_lit.sidebar.file_uploader("Enviar Logo da Empresa", type=["png", "jpg", "jpeg"])
 if logo_file is not None:
     image = Image.open(logo_file)
-    st.sidebar.image(image, use_column_width=True)
-st.sidebar.markdown("---")
+    str_lit.sidebar.image(image, use_column_width=True)
+str_lit.sidebar.markdown("---")
 
 # ---------------------------------------------------------
 # MÓDULO 1: DASHBOARD
 # ---------------------------------------------------------
 if menu == "📊 Dashboard / Consulta":
-    st.title("📊 Painel de Gestão")
-    
+    str_lit.title("📊 Painel de Gestão")
     conn = sqlite3.connect(DB_FILE)
     query = '''
         SELECT c.id, c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
@@ -301,35 +293,30 @@ if menu == "📊 Dashboard / Consulta":
 
     if not df.empty:
         opcoes_filiais_painel = ["Todas as Filiais"] + sorted(df['filial'].dropna().unique().tolist())
-        filial_escolhida_painel = st.selectbox("🏢 Selecione a Filial para Visualização:", opcoes_filiais_painel)
-        
+        filial_escolhida_painel = str_lit.selectbox("🏢 Selecione a Filial para Visualização:", opcoes_filiais_painel)
         if filial_escolhida_painel != "Todas as Filiais":
             df = df[df['filial'] == filial_escolhida_painel]
-    else:
-        filial_escolhida_painel = "Todas as Filiais"
 
-    st.markdown("---")
-    st.metric("Total Colaboradores", len(df))
-    st.markdown("---")
+    str_lit.markdown("---")
+    str_lit.metric("Total Colaboradores", len(df))
+    str_lit.markdown("---")
 
     if df.empty:
-        st.info("Nenhum colaborador cadastrado para esta seleção.")
+        str_lit.info("Nenhum colaborador cadastrado para esta seleção.")
     else:
-        colunas_data = ['Data Admissão', 'Data Movimentação', 'Data Demissão']
-        for col in colunas_data:
+        for col in ['Data Admissão', 'Data Movimentação', 'Data Demissão']:
             if col in df.columns:
                 df[col] = df[col].apply(formatar_data_br)
-
         if 'CPF' in df.columns:
             df['CPF'] = df['CPF'].apply(formatar_cpf)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            filtro_tipo = st.multiselect("Filtrar por Tipo:", options=df['Tipo'].dropna().unique())
-        with col2:
-            filtro_subtipo = st.multiselect("Filtrar por Subtipo:", options=df['Subtipo'].dropna().unique())
-        with col3:
-            filtro_status_colab = st.multiselect("Filtrar por Status:", options=df['Status'].dropna().unique(), default=["Ativo"])
+        c1, c2, c3 = str_lit.columns(3)
+        with c1:
+            filtro_tipo = str_lit.multiselect("Filtrar por Tipo:", options=df['Tipo'].dropna().unique())
+        with c2:
+            filtro_subtipo = str_lit.multiselect("Filtrar por Subtipo:", options=df['Subtipo'].dropna().unique())
+        with c3:
+            filtro_status_colab = str_lit.multiselect("Filtrar por Status:", options=df['Status'].dropna().unique(), default=["Ativo"])
 
         df_filtered = df.copy()
         if filtro_tipo:
@@ -339,31 +326,28 @@ if menu == "📊 Dashboard / Consulta":
         if filtro_status_colab:
             df_filtered = df_filtered[df_filtered['Status'].isin(filtro_status_colab)]
 
-        st.subheader(f"Registros Exibidos ({len(df_filtered)})")
-        st.dataframe(df_filtered, use_container_width=True)
+        str_lit.subheader(f"Registros Exibidos ({len(df_filtered)})")
+        str_lit.dataframe(df_filtered, use_container_width=True)
 
 # ---------------------------------------------------------
 # MÓDULO 2: FILIAIS
 # ---------------------------------------------------------
 elif menu == "🏢 Filiais":
-    st.title("🏢 Gestão e Filtragem por Filial")
-    st.write("Selecione abaixo uma filial para consultar instantaneamente todas as informações pertinentes a ela.")
-
+    str_lit.title("🏢 Gestão e Filtragem por Filial")
     conn = sqlite3.connect(DB_FILE)
     df_filiais_list = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais ORDER BY nome", conn)
     conn.close()
 
     if df_filiais_list.empty:
-        st.warning("⚠️ Nenhuma filial cadastrada no sistema.")
+        str_lit.warning("⚠️ Nenhuma filial cadastrada no sistema.")
     else:
         nomes_filiais = df_filiais_list['nome'].tolist()
-        filial_selecionada_detalhe = st.selectbox("🏢 **Selecione a Filial para Consulta:**", nomes_filiais)
-
+        filial_selecionada_detalhe = str_lit.selectbox("🏢 **Selecione a Filial para Consulta:**", nomes_filiais)
         filial_row = df_filiais_list[df_filiais_list['nome'] == filial_selecionada_detalhe].iloc[0]
         filial_id_atual = filial_row['id']
         cnpj_filial_atual = formatar_cnpj(filial_row['cnpj']) if filial_row['cnpj'] else "Não Informado"
 
-        st.markdown(f"### 📍 Unidade: {filial_selecionada_detalhe} (CNPJ: {cnpj_filial_atual})")
+        str_lit.markdown(f"### 📍 Unidade: {filial_selecionada_detalhe} (CNPJ: {cnpj_filial_atual})")
 
         conn = sqlite3.connect(DB_FILE)
         df_colab_filial = pd.read_sql_query('''
@@ -383,25 +367,23 @@ elif menu == "🏢 Filiais":
             df_colab_filial['Data Admissão'] = df_colab_filial['Data Admissão'].apply(formatar_data_br)
             df_colab_filial['Data Movimentação'] = df_colab_filial['Data Movimentação'].apply(formatar_data_br)
 
-        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1, col_m2, col_m3 = str_lit.columns(3)
         col_m1.metric("Total de Colaboradores", len(df_colab_filial))
         ativos_filial = len(df_colab_filial[df_colab_filial['Status'] == 'Ativo']) if not df_colab_filial.empty else 0
         col_m2.metric("Ativos", ativos_filial)
         demitidos_filial = len(df_colab_filial[df_colab_filial['Status'] == 'Demitido']) if not df_colab_filial.empty else 0
         col_m3.metric("Demitidos", demitidos_filial)
 
-        st.markdown("---")
-        st.subheader(f"📋 Relação de Colaboradores - {filial_selecionada_detalhe}")
+        str_lit.markdown("---")
+        str_lit.subheader(f"📋 Relação de Colaboradores - {filial_selecionada_detalhe}")
         if df_colab_filial.empty:
-            st.info("Nenhum colaborador vinculado a esta filial.")
+            str_lit.info("Nenhum colaborador vinculado a esta filial.")
         else:
-            st.dataframe(df_colab_filial, use_container_width=True)
-
+            str_lit.dataframe(df_colab_filial, use_container_width=True)
             output_filial = io.BytesIO()
             with pd.ExcelWriter(output_filial, engine='openpyxl') as writer:
                 df_colab_filial.to_excel(writer, index=False, sheet_name=filial_selecionada_detalhe[:30])
-            
-            st.download_button(
+            str_lit.download_button(
                 label=f"📥 Baixar Relatório da Filial ({filial_selecionada_detalhe}) em Excel",
                 data=output_filial.getvalue(),
                 file_name=f"relatorio_filial_{filial_selecionada_detalhe.replace(' ', '_')}.xlsx",
@@ -412,18 +394,16 @@ elif menu == "🏢 Filiais":
 # MÓDULO 3: COLABORADORES
 # ---------------------------------------------------------
 elif menu == "👥 Colaboradores":
-    st.title("👥 Consulta de Colaboradores por Filial")
-    st.write("Filtre e visualize exclusivamente os colaboradores da filial selecionada abaixo.")
-
+    str_lit.title("👥 Consulta de Colaboradores por Filial")
     conn = sqlite3.connect(DB_FILE)
     df_filiais_colab = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
     conn.close()
 
     if df_filiais_colab.empty:
-        st.warning("⚠️ Nenhuma filial cadastrada.")
+        str_lit.warning("⚠️ Nenhuma filial cadastrada.")
     else:
         lista_nomes_f = ["Todas as Filiais"] + df_filiais_colab['nome'].tolist()
-        filial_escolhida_colab_mod = st.selectbox("🏢 Selecione a Filial para filtrar os colaboradores:", lista_nomes_f)
+        filial_escolhida_colab_mod = str_lit.selectbox("🏢 Selecione a Filial para filtrar os colaboradores:", lista_nomes_f)
 
         conn = sqlite3.connect(DB_FILE)
         if filial_escolhida_colab_mod == "Todas as Filiais":
@@ -459,57 +439,52 @@ elif menu == "👥 Colaboradores":
             df_c_res['Data Admissão'] = df_c_res['Data Admissão'].apply(formatar_data_br)
             df_c_res['Data Movimentação'] = df_c_res['Data Movimentação'].apply(formatar_data_br)
 
-        st.metric("Colaboradores Listados", len(df_c_res))
-        st.markdown("---")
+        str_lit.metric("Colaboradores Listados", len(df_c_res))
+        str_lit.markdown("---")
         if df_c_res.empty:
-            st.info("Nenhum colaborador encontrado para esta seleção.")
+            str_lit.info("Nenhum colaborador encontrado para esta seleção.")
         else:
-            st.dataframe(df_c_res, use_container_width=True)
+            str_lit.dataframe(df_c_res, use_container_width=True)
 
 # ---------------------------------------------------------
 # MÓDULO 4: NOVO COLABORADOR / ADMISSÃO
 # ---------------------------------------------------------
 elif menu == "➕ Novo Colaborador / Admissão":
-    st.title("➕ Admissão / Movimentação de Empregado")
-    
+    str_lit.title("➕ Admissão / Movimentação de Empregado")
     if not filiais_nome_para_id:
-        st.warning("⚠️ Cadastre pelo menos uma filial antes de adicionar colaboradores.")
+        str_lit.warning("⚠️ Cadastre pelo menos uma filial antes de adicionar colaboradores.")
     else:
-        st.subheader("1. Informações Principais e Movimentação")
-        c_fil, c1, c2 = st.columns(3)
+        str_lit.subheader("1. Informações Principais e Movimentação")
+        c_fil, c1, c2 = str_lit.columns(3)
         filial_nome = c_fil.selectbox("Filial *", options=list(filiais_nome_para_id.keys()))
         empregado = c1.text_input("Empregado (Nome Completo) *")
         matricula = c2.text_input("Matrícula *")
 
-        c_t1, c_t2, c_t3 = st.columns(3)
+        c_t1, c_t2, c_t3 = str_lit.columns(3)
         tipo_mov = c_t1.selectbox("Tipo *", options=["Entrada", "Saída"])
         subtipo_mov = c_t2.selectbox("Subtipo *", options=["Admissão", "Alocação", "Transferência", "Demissão"])
         data_mov = c_t3.date_input("Data da Movimentação *", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
-        st.subheader("2. Dados Profissionais, Contratação e Documentos")
-        c3, c4, c5 = st.columns(3)
+        str_lit.subheader("2. Dados Profissionais, Contratação e Documentos")
+        c3, c4, c5 = str_lit.columns(3)
         cargos_existentes = get_cargos_cadastrados()
         cargo_sel = c3.selectbox("Cargo Existente:", ["-- Novo Cargo --"] + cargos_existentes)
-        if cargo_sel == "-- Novo Cargo --":
-            cargo = c3.text_input("Digite o Cargo *")
-        else:
-            cargo = cargo_sel
+        cargo = c3.text_input("Digite o Cargo *") if cargo_sel == "-- Novo Cargo --" else cargo_sel
 
         data_admissao = c4.date_input("Data de Admissão *", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
         tipo_contratacao = c5.selectbox("Tipo de Contratação *", options=["CLT", "PJ"])
 
-        c6, c7 = st.columns(2)
+        c6, c7 = str_lit.columns(2)
         cpf = c6.text_input("CPF")
         rg = c7.text_input("RG")
 
-        observacoes = st.text_area("Observações")
-
+        observacoes = str_lit.text_area("Observações")
         status_colab_novo = "Demitido" if subtipo_mov == "Demissão" or tipo_mov == "Saída" else "Ativo"
         data_demissao_novo = data_mov if status_colab_novo == "Demitido" else None
 
-        if st.button("💾 Finalizar Cadastro / Movimentação"):
+        if str_lit.button("💾 Finalizar Cadastro / Movimentação"):
             if not matricula or not empregado:
-                st.error("Preencha os campos obrigatórios (Empregado e Matrícula).")
+                str_lit.error("Preencha os campos obrigatórios (Empregado e Matrícula).")
             else:
                 cpf_formatado = formatar_cpf(cpf)
                 dt_dem_val = str(data_demissao_novo) if status_colab_novo == "Demitido" and data_demissao_novo else None
@@ -526,25 +501,24 @@ elif menu == "➕ Novo Colaborador / Admissão":
                     ''', (
                         matricula, empregado, cpf_formatado, rg, cargo,
                         filiais_nome_para_id[filial_nome], str(data_admissao),
-                        status_colaborador_novo if 'status_colaborador_novo' in locals() else status_colab_novo, dt_dem_val, tipo_mov, subtipo_mov,
+                        status_colab_novo, dt_dem_val, tipo_mov, subtipo_mov,
                         str(data_mov), observacoes, tipo_contratacao, "37.608.361/0001-25"
                     ))
                     conn.commit()
                     conn.close()
-                    
                     registrar_historico(matricula, "Nova Movimentação", "-", f"Tipo: {tipo_mov} / Subtipo: {subtipo_mov} - Filial {filial_nome}")
-                    st.success(f"Empregado {empregado} cadastrado/movimentado com sucesso!")
+                    str_lit.success(f"Empregado {empregado} cadastrado/movimentado com sucesso!")
                 except sqlite3.IntegrityError:
-                    st.error("Erro: Matrícula já cadastrada no sistema.")
+                    str_lit.error("Erro: Matrícula já cadastrada no sistema.")
 
 # ---------------------------------------------------------
-# MÓDULO 5: EDITAR CADASTRO COMPLETO
+# MÓDULO 5: EDITAR CADASTRO DO COLABORADOR (ATUALIZADO)
 # ---------------------------------------------------------
 elif menu == "✏️ Editar Cadastro do Colaborador":
-    st.title("✏️ Editar Cadastro do Colaborador")
+    str_lit.title("✏️ Editar Cadastro do Colaborador")
     
     conn = sqlite3.connect(DB_FILE)
-    df_colab = pd.read_sql_query('''
+    df_colab_geral = pd.read_sql_query('''
         SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial
         FROM colaboradores c
         LEFT JOIN filiais f ON c.filial_id = f.id
@@ -552,28 +526,25 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
     ''', conn)
     conn.close()
 
-    if df_colab.empty:
-        st.info("Nenhum colaborador cadastrado.")
+    if df_colab_geral.empty:
+        str_lit.info("Nenhum colaborador cadastrado.")
     else:
-        st.subheader("🔍 Localize o colaborador")
-        f1, f2, f3 = st.columns(3)
-        filtro_mat_edit = f3.text_input("Filtrar por Matrícula:")
-        filtro_filial_edit = f1.multiselect("Filtrar por Filial:", options=df_colab['filial'].dropna().unique())
-        filtro_cargo_edit = f2.multiselect("Filtrar por Cargo:", options=df_colab['cargo'].dropna().unique())
-
-        df_edit_filtered = df_colab.copy()
-        if filtro_mat_edit:
-            df_edit_filtered = df_edit_filtered[df_edit_filtered['matricula'].str.contains(filtro_mat_edit, case=False, na=False)]
-        if filtro_filial_edit:
-            df_edit_filtered = df_edit_filtered[df_edit_filtered['filial'].isin(filtro_filial_edit)]
-        if filtro_cargo_edit:
-            df_edit_filtered = df_edit_filtered[df_edit_filtered['cargo'].isin(filtro_cargo_edit)]
-
+        str_lit.subheader("🔍 Localize o colaborador")
+        
+        # Filtrar por Filial primeiro (conforme solicitado)
+        lista_filiais_edit = ["Todas as Filiais"] + sorted(df_colab_geral['filial'].dropna().unique().tolist())
+        filial_escolhida_edicao = str_lit.selectbox("Filtrar por Filial:", options=lista_filiais_edit)
+        
+        df_edit_filtered = df_colab_geral.copy()
+        if filial_escolhida_edicao != "Todas as Filiais":
+            df_edit_filtered = df_edit_filtered[df_edit_filtered['filial'] == filial_escolhida_edicao]
+            
+        # Exibe todos os colaboradores referentes a essa seleção de filial
         if df_edit_filtered.empty:
-            st.warning("Nenhum colaborador encontrado com os filtros informados.")
+            str_lit.warning("Nenhum colaborador encontrado para esta filial.")
         else:
-            opcoes_colab = df_edit_filtered['matricula'] + " - " + df_edit_filtered['nome']
-            colab_selecionado = st.selectbox("Selecione o Colaborador:", opcoes_colab)
+            opcoes_colab = df_edit_filtered['matricula'] + " - " + df_edit_filtered['nome'] + " (Cargo: " + df_edit_filtered['cargo'].fillna('Não informado') + ")"
+            colab_selecionado = str_lit.selectbox("Selecione o Colaborador que deseja editar:", options=opcoes_colab)
             
             if colab_selecionado:
                 matricula_sel = colab_selecionado.split(" - ")[0]
@@ -585,16 +556,16 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                 conn.close()
 
                 if dados:
-                    tab_edit, tab_delete = st.tabs(["✏️ Alterar Informações", "🗑️ Excluir Registro"])
+                    tab_edit, tab_delete = str_lit.tabs(["✏️ Editar Dados do Colaborador", "🗑️ Excluir Registro"])
                     
                     with tab_edit:
-                        st.subheader("Editar Dados da Movimentação e Empregado")
-                        u1, u2, u3 = st.columns(3)
+                        str_lit.subheader("Editar Dados do Colaborador")
+                        u1, u2, u3 = str_lit.columns(3)
                         mat_e = u1.text_input("Matrícula *", value=dados[1])
                         nome_e = u2.text_input("Empregado *", value=dados[2])
                         cargo_e = u3.text_input("Cargo *", value=dados[5] or "")
 
-                        u4, u5, u6 = st.columns(3)
+                        u4, u5, u6 = str_lit.columns(3)
                         cpf_e = u4.text_input("CPF", value=formatar_cpf(dados[3]))
                         rg_e = u5.text_input("RG", value=dados[4] or "")
                         
@@ -602,7 +573,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         filial_idx = list(filiais_nome_para_id.keys()).index(filial_atual_nome) if filial_atual_nome in filiais_nome_para_id else 0
                         filial_e = u6.selectbox("Filial", options=list(filiais_nome_para_id.keys()), index=filial_idx)
 
-                        m1, m2, m3 = st.columns(3)
+                        m1, m2, m3 = str_lit.columns(3)
                         tipo_mov_opts = ["Entrada", "Saída"]
                         t_mov_atual = dados[25] if len(dados) > 25 and dados[25] in tipo_mov_opts else "Entrada"
                         tipo_mov_e = m1.selectbox("Tipo", tipo_mov_opts, index=tipo_mov_opts.index(t_mov_atual))
@@ -614,7 +585,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         dt_mov_val = converter_para_date(dados[27]) if len(dados) > 27 and dados[27] else date.today()
                         data_mov_e = m3.date_input("Data da Movimentação", value=dt_mov_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
-                        c_contr1, c_contr2 = st.columns(2)
+                        c_contr1, c_contr2 = str_lit.columns(2)
                         contrato_opts = ["CLT", "PJ"]
                         contrato_atual = dados[29] if len(dados) > 29 and dados[29] in contrato_opts else "CLT"
                         tipo_contratacao_e = c_contr1.selectbox("Tipo de Contratação", contrato_opts, index=contrato_opts.index(contrato_atual))
@@ -622,9 +593,9 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         dt_adm_val = converter_para_date(dados[9]) if dados[9] else date.today()
                         data_admissao_e = c_contr2.date_input("Data de Admissão", value=dt_adm_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
-                        observacoes_e = st.text_area("Observações", value=dados[28] if len(dados) > 28 and dados[28] else "")
+                        observacoes_e = str_lit.text_area("Observações", value=dados[28] if len(dados) > 28 and dados[28] else "")
 
-                        if st.button("💾 Salvar Alterações"):
+                        if str_lit.button("💾 Salvar Alterações"):
                             cpf_salvar = formatar_cpf(cpf_e)
                             status_colab_e = "Demitido" if subtipo_mov_e == "Demissão" or tipo_mov_e == "Saída" else "Ativo"
                             dt_dem_salvar = str(data_mov_e) if status_colab_e == "Demitido" else None
@@ -648,38 +619,36 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             ))
                             conn.commit()
                             conn.close()
-                            st.success("Cadastro atualizado com sucesso!")
-                            st.rerun()
+                            str_lit.success("Cadastro atualizado com sucesso!")
+                            str_lit.rerun()
 
                     with tab_delete:
-                        st.warning(f"⚠️ Excluir permanentemente o registro de **{dados[2]}**?")
-                        confirma = st.checkbox("Confirmo a exclusão.")
-                        if st.button("🗑️ Confirmar Exclusão", type="primary"):
+                        str_lit.warning(f"⚠️ Excluir permanentemente o registro de **{dados[2]}**?")
+                        confirma = str_lit.checkbox("Confirmo a exclusão.")
+                        if str_lit.button("🗑️ Confirmar Exclusão", type="primary"):
                             if confirma:
                                 conn = sqlite3.connect(DB_FILE)
                                 c = conn.cursor()
                                 c.execute("DELETE FROM colaboradores WHERE matricula = ?", (matricula_sel,))
                                 conn.commit()
                                 conn.close()
-                                st.success("Registro excluído!")
-                                st.rerun()
+                                str_lit.success("Registro excluído!")
+                                str_lit.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 6: CADASTRO DE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🏢 Cadastro de Filiais":
-    st.title("🏢 Gestão e Cadastro de Filiais")
-    
-    tab_nova, tab_gerenciar = st.tabs(["➕ Cadastrar Nova Filial", "✏️ Editar / Excluir Filial"])
+    str_lit.title("🏢 Gestão e Cadastro de Filiais")
+    tab_nova, tab_gerenciar = str_lit.tabs(["➕ Cadastrar Nova Filial", "✏️ Editar / Excluir Filial"])
     
     with tab_nova:
-        st.subheader("Adicionar Nova Filial")
-        nome_filial = st.text_input("Nome da Filial / Unidade *")
-        cnpj_filial = st.text_input("CNPJ da Filial (Opcional)", value="37.608.361/0001-25")
-        
-        if st.button("Cadastrar Filial"):
+        str_lit.subheader("Adicionar Nova Filial")
+        nome_filial = str_lit.text_input("Nome da Filial / Unidade *")
+        cnpj_filial = str_lit.text_input("CNPJ da Filial (Opcional)", value="37.608.361/0001-25")
+        if str_lit.button("Cadastrar Filial"):
             if not nome_filial:
-                st.error("Informe o nome da filial.")
+                str_lit.error("Informe o nome da filial.")
             else:
                 try:
                     conn = sqlite3.connect(DB_FILE)
@@ -687,61 +656,56 @@ elif menu == "🏢 Cadastro de Filiais":
                     c.execute("INSERT INTO filiais (nome, cnpj) VALUES (?, ?)", (nome_filial, formatar_cnpj(cnpj_filial)))
                     conn.commit()
                     conn.close()
-                    st.success(f"Filial '{nome_filial}' cadastrada com sucesso!")
-                    st.rerun()
+                    str_lit.success(f"Filial '{nome_filial}' cadastrada com sucesso!")
+                    str_lit.rerun()
                 except sqlite3.IntegrityError:
-                    st.error("Esta filial já está cadastrada.")
+                    str_lit.error("Esta filial já está cadastrada.")
 
     with tab_gerenciar:
-        st.subheader("Gerenciar Filiais Existentes")
+        str_lit.subheader("Gerenciar Filiais Existentes")
         conn = sqlite3.connect(DB_FILE)
         df_filiais = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais ORDER BY nome", conn)
         conn.close()
-        
         if df_filiais.empty:
-            st.info("Nenhuma filial cadastrada.")
+            str_lit.info("Nenhuma filial cadastrada.")
         else:
             opcoes_filiais_gestao = df_filiais['nome'].tolist()
-            filial_selecionada_edit = st.selectbox("Selecione a Filial:", options=opcoes_filiais_gestao)
-            
+            filial_selecionada_edit = str_lit.selectbox("Selecione a Filial:", options=opcoes_filiais_gestao)
             if filial_selecionada_edit:
                 filial_row = df_filiais[df_filiais['nome'] == filial_selecionada_edit].iloc[0]
                 filial_id_sel = filial_row['id']
-                
-                novo_nome_filial = st.text_input("Nome da Filial", value=filial_row['nome'])
-                novo_cnpj_filial = st.text_input("CNPJ da Filial", value=formatar_cnpj(filial_row['cnpj']) if filial_row['cnpj'] else "37.608.361/0001-25")
-                
-                col_b1, col_b2 = st.columns(2)
+                novo_nome_filial = str_lit.text_input("Nome da Filial", value=filial_row['nome'])
+                novo_cnpj_filial = str_lit.text_input("CNPJ da Filial", value=formatar_cnpj(filial_row['cnpj']) if filial_row['cnpj'] else "37.608.361/0001-25")
+                col_b1, col_b2 = str_lit.columns(2)
                 with col_b1:
-                    if st.button("💾 Salvar Alterações"):
+                    if str_lit.button("💾 Salvar Alterações"):
                         try:
                             conn = sqlite3.connect(DB_FILE)
                             c = conn.cursor()
                             c.execute("UPDATE filiais SET nome = ?, cnpj = ? WHERE id = ?", (novo_nome_filial, formatar_cnpj(novo_cnpj_filial), filial_id_sel))
                             conn.commit()
                             conn.close()
-                            st.success("Filial atualizada!")
-                            st.rerun()
+                            str_lit.success("Filial atualizada!")
+                            str_lit.rerun()
                         except sqlite3.IntegrityError:
-                            st.error("Já existe outra filial com este nome.")
+                            str_lit.error("Já existe outra filial com este nome.")
                 with col_b2:
-                    confirma_del_filial = st.checkbox("Confirmo exclusão desta filial")
-                    if st.button("🗑️ Excluir Filial", type="primary"):
+                    confirma_del_filial = str_lit.checkbox("Confirmo exclusão desta filial")
+                    if str_lit.button("🗑️ Excluir Filial", type="primary"):
                         if confirma_del_filial:
                             conn = sqlite3.connect(DB_FILE)
                             c = conn.cursor()
                             c.execute("DELETE FROM filiais WHERE id = ?", (filial_id_sel,))
                             conn.commit()
                             conn.close()
-                            st.success("Filial excluída!")
-                            st.rerun()
+                            str_lit.success("Filial excluída!")
+                            str_lit.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 7: TRANSFERÊNCIA ENTRE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🔄 Transferência entre Filiais":
-    st.title("🔄 Transferência de Empregado entre Filiais")
-    
+    str_lit.title("🔄 Transferência de Empregado entre Filiais")
     conn = sqlite3.connect(DB_FILE)
     df_colab = pd.read_sql_query('''
         SELECT c.matricula, c.nome, f.nome as filial
@@ -752,22 +716,19 @@ elif menu == "🔄 Transferência entre Filiais":
     conn.close()
 
     if df_colab.empty:
-        st.info("Nenhum empregado cadastrado.")
+        str_lit.info("Nenhum empregado cadastrado.")
     elif not filiais_nome_para_id or len(filiais_nome_para_id) < 2:
-        st.warning("⚠️ Cadastre pelo menos duas filiais para realizar transferências.")
+        str_lit.warning("⚠️ Cadastre pelo menos duas filiais para realizar transferências.")
     else:
         opcoes_c = df_colab['matricula'] + " - " + df_colab['nome'] + " (Atual: " + df_colab['filial'].fillna('Nenhuma') + ")"
-        colab_sel = st.selectbox("Selecione o Empregado:", opcoes_c)
-        
+        colab_sel = str_lit.selectbox("Selecione o Empregado:", opcoes_c)
         if colab_sel:
             matricula_transf = colab_sel.split(" - ")[0]
             filial_atual_str = colab_sel.split("(Atual: ")[1].replace(")", "")
-            
-            nova_filial_destino = st.selectbox("Filial de Destino:", options=list(filiais_nome_para_id.keys()))
-            
-            if st.button("Confirmar Transferência"):
+            nova_filial_destino = str_lit.selectbox("Filial de Destino:", options=list(filiais_nome_para_id.keys()))
+            if str_lit.button("Confirmar Transferência"):
                 if filial_atual_str == nova_filial_destino:
-                    st.warning("O empregado já pertence a esta filial.")
+                    str_lit.warning("O empregado já pertence a esta filial.")
                 else:
                     novo_id = filiais_nome_para_id[nova_filial_destino]
                     conn = sqlite3.connect(DB_FILE)
@@ -775,18 +736,16 @@ elif menu == "🔄 Transferência entre Filiais":
                     c.execute("UPDATE colaboradores SET filial_id = ?, tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Transferência' WHERE matricula = ?", (novo_id, matricula_transf))
                     conn.commit()
                     conn.close()
-                    
                     registrar_historico(matricula_transf, "Transferência de Filial", filial_atual_str, nova_filial_destino)
-                    st.success(f"Empregado transferido com sucesso para {nova_filial_destino}!")
-                    st.rerun()
+                    str_lit.success(f"Empregado transferido com sucesso para {nova_filial_destino}!")
+                    str_lit.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
-    st.title("💳 Pedido e Gestão de Saldo do Cartão Alimentação")
-    
-    tab_lanc, tab_hist = st.tabs(["📋 Lançamento por Filial", "📜 Histórico"])
+    str_lit.title("💳 Pedido e Gestão de Saldo do Cartão Alimentação")
+    tab_lanc, tab_hist = str_lit.tabs(["📋 Lançamento por Filial", "📜 Histórico"])
 
     with tab_lanc:
         conn = sqlite3.connect(DB_FILE)
@@ -801,9 +760,9 @@ elif menu == "💳 Pedido Saldo Alimentação":
         conn.close()
 
         if df_va_base.empty:
-            st.info("Nenhum empregado ativo cadastrado.")
+            str_lit.info("Nenhum empregado ativo cadastrado.")
         else:
-            col_m1, col_m2 = st.columns(2)
+            col_m1, col_m2 = str_lit.columns(2)
             meses_disp = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
             mes_sel = col_m1.selectbox("Mês:", meses_disp, index=datetime.now().month - 1)
             anos_disp = [str(y) for y in range(datetime.now().year - 1, datetime.now().year + 3)]
@@ -811,78 +770,73 @@ elif menu == "💳 Pedido Saldo Alimentação":
             competencia_str = f"{mes_sel} / {ano_sel}"
 
             opcoes_filial_va = sorted(df_va_base['filial'].dropna().unique().tolist())
-            filial_va_escolhida = st.selectbox("Filial:", opcoes_filial_va)
-
+            filial_va_escolhida = str_lit.selectbox("Filial:", opcoes_filial_va)
             df_filial_edit = df_va_base[df_va_base['filial'] == filial_va_escolhida].copy()
 
             if df_filial_edit.empty:
-                st.warning("Nenhum empregado ativo nesta filial.")
+                str_lit.warning("Nenhum empregado ativo nesta filial.")
             else:
                 df_filial_edit['Saldo (R$)'] = df_filial_edit['saldo_cartao_alimentacao'].astype(float)
                 df_filial_edit['Tipo de Usuário'] = df_filial_edit['tipo_usuario_va'].fillna('Já Usuário')
-                
                 tabela_para_edicao = df_filial_edit[['matricula', 'cnpj_empresa', 'nome', 'cpf', 'Saldo (R$)', 'Tipo de Usuário']].copy()
                 tabela_para_edicao.columns = ['Matrícula', 'CNPJ', 'Empregado', 'CPF', 'Saldo (R$)', 'Tipo de Usuário']
                 
-                tabela_editada = st.data_editor(
+                tabela_editada = str_lit.data_editor(
                     tabela_para_edicao,
                     column_config={
-                        "Matrícula": st.column_config.TextColumn("Matrícula", disabled=True),
-                        "CNPJ": st.column_config.TextColumn("CNPJ", disabled=True),
-                        "Empregado": st.column_config.TextColumn("Empregado", disabled=True),
-                        "CPF": st.column_config.TextColumn("CPF", disabled=True),
-                        "Saldo (R$)": st.column_config.NumberColumn("Saldo (R$)", min_value=0.0, step=0.5, format="R$ %.2f"),
-                        "Tipo de Usuário": st.column_config.SelectboxColumn("Tipo de Usuário", options=["Já Usuário", "Novo Usuário"], required=True)
+                        "Matrícula": str_lit.column_config.TextColumn("Matrícula", disabled=True),
+                        "CNPJ": str_lit.column_config.TextColumn("CNPJ", disabled=True),
+                        "Empregado": str_lit.column_config.TextColumn("Empregado", disabled=True),
+                        "CPF": str_lit.column_config.TextColumn("CPF", disabled=True),
+                        "Saldo (R$)": str_lit.column_config.NumberColumn("Saldo (R$)", min_value=0.0, step=0.5, format="R$ %.2f"),
+                        "Tipo de Usuário": str_lit.column_config.SelectboxColumn("Tipo de Usuário", options=["Já Usuário", "Novo Usuário"], required=True)
                     },
                     hide_index=True,
                     use_container_width=True,
                     key=f"editor_va_{filial_va_escolhida}"
                 )
 
-                if st.button("💾 Salvar Pedido da Filial"):
+                if str_lit.button("💾 Salvar Pedido da Filial"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     c.execute("DELETE FROM historico_pedidos_va WHERE mes_ano = ? AND filial_nome = ?", (competencia_str, filial_va_escolhida))
-                    
                     for _, row in tabela_editada.iterrows():
                         c.execute('''
                             UPDATE colaboradores 
                             SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
                             WHERE matricula = ?
                         ''', (float(row['Saldo (R$)']), row['Tipo de Usuário'], row['Matrícula']))
-                        
                         c.execute('''
                             INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, saldo, tipo_usuario, data_registro)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (competencia_str, filial_va_escolhida, row['Matrícula'], row['CNPJ'], row['Empregado'], row['CPF'], float(row['Saldo (R$)']), row['Tipo de Usuário'], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                        
                     conn.commit()
                     conn.close()
-                    st.success("Pedido salvo com sucesso!")
-                    st.rerun()
+                    str_lit.success("Pedido salvo com sucesso!")
+                    str_lit.rerun()
 
     with tab_hist:
-        st.subheader("Histórico de Pedidos")
+        str_lit.subheader("Histórico de Pedidos")
         conn = sqlite3.connect(DB_FILE)
         df_hist_va = pd.read_sql_query('SELECT * FROM historico_pedidos_va ORDER BY data_registro DESC', conn)
         conn.close()
         if df_hist_va.empty:
-            st.info("Nenhum histórico.")
+            str_lit.info("Nenhum histórico.")
         else:
-            st.dataframe(df_hist_va, use_container_width=True)
+            str_lit.dataframe(df_hist_va, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (RIGOR COM AS DATAS E ANTI-DUPLICIDADE)
+# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (CORRIGIDO RIGOROSAMENTE)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Excel por Filial":
-    st.title("📥 Importar Colaboradores por Filial (Leitura Rigorosa de Datas)")
-    st.write("Selecione a filial e faça o upload da planilha. As datas de Admissão e Movimentação serão extraídas rigorosamente conforme constam no arquivo.")
+    str_lit.title("📥 Importar Colaboradores por Filial (Leitura Rigorosa de Datas)")
+    str_lit.write("Selecione a filial e faça o upload da planilha. As datas de Admissão e Movimentação serão extraídas rigorosamente.")
     
     if not filiais_nome_para_id:
-        st.warning("Cadastre uma filial primeiro.")
+        str_lit.warning("Cadastre uma filial primeiro.")
     else:
-        filial_import_nome = st.selectbox("Filial de Destino:", options=list(filiais_nome_para_id.keys()))
-        uploaded_file = st.file_uploader("Arquivo de Planilha (Qualquer Extensão)", type=None)
+        filial_import_nome = str_lit.selectbox("Filial de Destino:", options=list(filiais_nome_para_id.keys()))
+        uploaded_file = str_lit.file_uploader("Arquivo de Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"])
         
         if uploaded_file is not None:
             try:
@@ -892,12 +846,13 @@ elif menu == "📥 Importar Excel por Filial":
                 else:
                     df_import = pd.read_excel(uploaded_file, engine='openpyxl' if not nome_arq.endswith('.xls') else 'xlrd')
                 
+                # Normaliza os nomes das colunas de forma limpa (remove espaços e converte para minúsculas)
                 df_import.columns = [str(c).strip().lower() for c in df_import.columns]
                 
-                st.write("Prévia dos dados encontrados no arquivo:")
-                st.dataframe(df_import.head(), use_container_width=True)
+                str_lit.write("Prévia dos dados encontrados no arquivo:")
+                str_lit.dataframe(df_import.head(), use_container_width=True)
                 
-                if st.button("Processar e Sincronizar Importação"):
+                if str_lit.button("Processar e Sincronizar Importação"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     filial_id_val = filiais_nome_para_id[filial_import_nome]
@@ -906,34 +861,44 @@ elif menu == "📥 Importar Excel por Filial":
                     
                     for _, row in df_import.iterrows():
                         try:
-                            mat = str(row.get('matricula', row.get('matrícula', row.get('mat', row.get('id', ''))))).strip()
-                            nom = str(row.get('empregado', row.get('nome', row.get('funcionário', row.get('funcionario', ''))))).strip()
+                            # Busca segura de chaves por correspondência exata ou parcial de colunas
+                            row_dict = {str(k).strip().lower(): v for k, v in row.to_dict().items()}
+                            
+                            mat = str(row_dict.get('matricula', row_dict.get('matrícula', row_dict.get('mat', row_dict.get('id', ''))))).strip()
+                            nom = str(row_dict.get('empregado', row_dict.get('nome', row_dict.get('funcionário', row_dict.get('funcionario', ''))))).strip()
                             
                             if not mat or mat == 'nan' or not nom or nom == 'nan':
                                 continue
                             
-                            t_mov = str(row.get('tipo', row.get('tipo_movimentacao', 'Entrada'))).strip()
-                            sub_mov = str(row.get('subtipo', row.get('subtipo_movimentacao', 'Admissão'))).strip()
+                            t_mov = str(row_dict.get('tipo', row_dict.get('tipo_movimentacao', row_dict.get('tipo movimentacao', 'Entrada')))).strip()
+                            sub_mov = str(row_dict.get('subtipo', row_dict.get('subtipo_movimentacao', row_dict.get('subtipo movimentacao', 'Admissão')))).strip()
                             
-                            # Leitura rigorosa da Data da Movimentação
-                            raw_dt_mov = row.get('data_movimentacao', row.get('data movimentacao', row.get('data', '')))
+                            # Extração blindada da Data de Movimentação
+                            raw_dt_mov = None
+                            for key_candidate in ['data_movimentacao', 'data movimentacao', 'datamovimentacao', 'data']:
+                                if key_candidate in row_dict:
+                                    raw_dt_mov = row_dict[key_candidate]
+                                    break
                             dt_mov = parse_data_rigorosa(raw_dt_mov)
                             
-                            cargo = str(row.get('cargo', row.get('funcao', row.get('função', 'Não Informado')))).strip()
+                            cargo = str(row_dict.get('cargo', row_dict.get('funcao', row_dict.get('função', 'Não Informado')))).strip()
                             
-                            # Leitura rigorosa da Data de Admissão
-                            raw_dt_adm = row.get('data_admissao', row.get('data admissao', row.get('admissao', '')))
+                            # Extração blindada da Data de Admissão
+                            raw_dt_adm = None
+                            for key_candidate in ['data_admissao', 'data admissao', 'dataadmissao', 'admissao', 'admissão']:
+                                if key_candidate in row_dict:
+                                    raw_dt_adm = row_dict[key_candidate]
+                                    break
                             dt_adm = parse_data_rigorosa(raw_dt_adm)
                             
-                            t_cont = str(row.get('tipo_contratacao', row.get('contratacao', row.get('contratação', 'CLT')))).strip()
-                            cpf_val = formatar_cpf(row.get('cpf', ''))
-                            rg_val = str(row.get('rg', '')).strip()
-                            obs_val = str(row.get('observacoes', row.get('obs', ''))).strip()
+                            t_cont = str(row_dict.get('tipo_contratacao', row_dict.get('contratacao', row_dict.get('contratação', 'CLT')))).strip()
+                            cpf_val = formatar_cpf(row_dict.get('cpf', ''))
+                            rg_val = str(row_dict.get('rg', '')).strip()
+                            obs_val = str(row_dict.get('observacoes', row_dict.get('obs', ''))).strip()
                             
                             status_c = "Demitido" if sub_mov.lower() in ["demissão", "demissao"] or t_mov.lower() == "saída" else "Ativo"
                             dt_dem = dt_mov if status_c == "Demitido" else None
 
-                            # Verifica se o colaborador já existe pela matrícula para evitar duplicidade
                             c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
                             existe = c.fetchone()
 
@@ -970,15 +935,15 @@ elif menu == "📥 Importar Excel por Filial":
                             
                     conn.commit()
                     conn.close()
-                    st.success(f"Sincronização concluída! {novos} novos colaboradores cadastrados e {atualizados} registros atualizados com sucesso na filial {filial_import_nome}, respeitando integralmente as datas da planilha.")
+                    str_lit.success(f"Sincronização concluída! {novos} novos colaboradores cadastrados e {atualizados} registros atualizados com sucesso na filial {filial_import_nome}, respeitando integralmente as datas.")
             except Exception as e:
-                st.error(f"Erro ao ler o arquivo: {e}")
+                str_lit.error(f"Erro ao ler o arquivo: {e}")
 
 # ---------------------------------------------------------
 # MÓDULO 10: EXPORTAR DADOS
 # ---------------------------------------------------------
 elif menu == "📤 Exportar Dados":
-    st.title("📤 Exportar Dados")
+    str_lit.title("📤 Exportar Dados")
     conn = sqlite3.connect(DB_FILE)
     df_export = pd.read_sql_query('''
         SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
@@ -992,12 +957,12 @@ elif menu == "📤 Exportar Dados":
     conn.close()
 
     if df_export.empty:
-        st.info("Sem dados para exportar.")
+        str_lit.info("Sem dados para exportar.")
     else:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_export.to_excel(writer, index=False, sheet_name='Colaboradores')
-        st.download_button(
+        str_lit.download_button(
             label="📥 Baixar Planilha Geral em Excel",
             data=output.getvalue(),
             file_name=f"relatorio_geral_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
@@ -1008,7 +973,7 @@ elif menu == "📤 Exportar Dados":
 # MÓDULO 11: HISTÓRICO DE ALTERAÇÕES
 # ---------------------------------------------------------
 elif menu == "📜 Histórico de Alterações":
-    st.title("📜 Histórico de Alterações")
+    str_lit.title("📜 Histórico de Alterações")
     conn = sqlite3.connect(DB_FILE)
     df_hist = pd.read_sql_query('''
         SELECT h.data_registro as "Data / Hora", c.nome as "Empregado", h.colaborador_matricula as "Matrícula",
@@ -1019,6 +984,6 @@ elif menu == "📜 Histórico de Alterações":
     ''', conn)
     conn.close()
     if df_hist.empty:
-        st.info("Sem histórico.")
+        str_lit.info("Sem histórico.")
     else:
-        st.dataframe(df_hist, use_container_width=True)
+        str_lit.dataframe(df_hist, use_container_width=True)
