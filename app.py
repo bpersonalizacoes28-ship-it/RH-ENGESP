@@ -213,7 +213,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL (COM O MÓDULO COLABORADORES)
+# MENU PRINCIPAL
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -371,7 +371,7 @@ elif menu == "🏢 Filiais":
             )
 
 # ---------------------------------------------------------
-# MÓDULO 3: COLABORADORES (COM FILTRO POR FILIAL)
+# MÓDULO 3: COLABORADORES
 # ---------------------------------------------------------
 elif menu == "👥 Colaboradores":
     st.title("👥 Consulta de Colaboradores por Filial")
@@ -834,11 +834,11 @@ elif menu == "💳 Pedido Saldo Alimentação":
             st.dataframe(df_hist_va, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (AUTOMÁTICO E COMPLETO)
+# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (MAPeamento Inteligente)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Excel por Filial":
-    st.title("📥 Importar Colaboradores por Filial (Automático)")
-    st.write("Selecione a filial de destino e faça o upload da planilha (qualquer formato). Os dados serão cadastrados automaticamente respeitando os campos de movimentação, cargo, datas, tipo de contratação, documentos e observações.")
+    st.title("📥 Importar Colaboradores por Filial (Automático e Inteligente)")
+    st.write("Selecione a filial de destino e faça o upload da planilha (qualquer formato). O sistema reconhecerá automaticamente os campos correspondentes.")
     
     if not filiais_nome_para_id:
         st.warning("Cadastre uma filial primeiro.")
@@ -854,6 +854,9 @@ elif menu == "📥 Importar Excel por Filial":
                 else:
                     df_import = pd.read_excel(uploaded_file, engine='openpyxl' if not nome_arq.endswith('.xls') else 'xlrd')
                 
+                # Normaliza os nomes das colunas para minúsculas e sem espaços extras para facilitar a busca
+                df_import.columns = [str(c).strip().lower() for c in df_import.columns]
+                
                 st.write("Prévia dos dados encontrados no arquivo:")
                 st.dataframe(df_import.head(), use_container_width=True)
                 
@@ -862,27 +865,27 @@ elif menu == "📥 Importar Excel por Filial":
                     c = conn.cursor()
                     filial_id_val = filiais_nome_para_id[filial_import_nome]
                     importados = 0
-                    atualizados = 0
                     
                     for _, row in df_import.iterrows():
                         try:
-                            # Ordem idêntica ao módulo Admissão: Empregado, Matrícula, Tipo, Subtipo, Data Movimentação, Cargo, Data Admissão, Contratação, CPF, RG, Observações
-                            mat = str(row.get('matricula', row.get('Matrícula', ''))).strip()
-                            nom = str(row.get('empregado', row.get('Empregado', row.get('nome', row.get('Nome', ''))))).strip()
+                            # Busca flexível por colunas comuns
+                            mat = str(row.get('matricula', row.get('matrícula', row.get('mat', row.get('id', ''))))).strip()
+                            nom = str(row.get('empregado', row.get('nome', row.get('funcionário', row.get('funcionario', ''))))).strip()
+                            
                             if not mat or mat == 'nan' or not nom or nom == 'nan':
                                 continue
                             
-                            t_mov = str(row.get('tipo', row.get('Tipo', 'Entrada'))).strip()
-                            sub_mov = str(row.get('subtipo', row.get('Subtipo', 'Admissão'))).strip()
-                            dt_mov = str(row.get('data_movimentacao', row.get('Data Movimentação', date.today()))).strip()
-                            cargo = str(row.get('cargo', row.get('Cargo', 'Não Informado'))).strip()
-                            dt_adm = str(row.get('data_admissao', row.get('Data Admissão', date.today()))).strip()
-                            t_cont = str(row.get('tipo_contratacao', row.get('Contratação', 'CLT'))).strip()
-                            cpf_val = formatar_cpf(row.get('cpf', row.get('CPF', '')))
-                            rg_val = str(row.get('rg', row.get('RG', ''))).strip()
-                            obs_val = str(row.get('observacoes', row.get('Observações', ''))).strip()
+                            t_mov = str(row.get('tipo', row.get('tipo_movimentacao', 'Entrada'))).strip()
+                            sub_mov = str(row.get('subtipo', row.get('subtipo_movimentacao', 'Admissão'))).strip()
+                            dt_mov = str(row.get('data_movimentacao', row.get('data', date.today()))).strip()
+                            cargo = str(row.get('cargo', row.get('funcao', row.get('função', 'Não Informado')))).strip()
+                            dt_adm = str(row.get('data_admissao', row.get('admissao', date.today()))).strip()
+                            t_cont = str(row.get('tipo_contratacao', row.get('contratacao', row.get('contratação', 'CLT')))).strip()
+                            cpf_val = formatar_cpf(row.get('cpf', ''))
+                            rg_val = str(row.get('rg', '')).strip()
+                            obs_val = str(row.get('observacoes', row.get('obs', ''))).strip()
                             
-                            status_c = "Demitido" if sub_mov == "Demissão" or t_mov == "Saída" else "Ativo"
+                            status_c = "Demitido" if sub_mov.lower() in ["demissão", "demissao"] or t_mov.lower() == "saída" else "Ativo"
                             dt_dem = dt_mov if status_c == "Demitido" else None
 
                             c.execute('''
@@ -917,7 +920,7 @@ elif menu == "📥 Importar Excel por Filial":
                             
                     conn.commit()
                     conn.close()
-                    st.success(f"Importação concluída com sucesso! {importados} registros integrados automaticamente na filial {filial_import_nome} e disponíveis em todos os módulos.")
+                    st.success(f"Importação concluída com sucesso! {importados} registros integrados e atualizados na filial {filial_import_nome}.")
             except Exception as e:
                 st.error(f"Erro ao ler o arquivo: {e}")
 
