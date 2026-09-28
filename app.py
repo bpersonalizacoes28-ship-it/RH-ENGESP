@@ -169,11 +169,9 @@ def registrar_historico(matricula, tipo, antigo, novo):
         conn.close()
 
 def parse_data_rigorosa(valor):
-    """Tratamento ultra-robusto para datas do Excel (texto, barras, hífens ou números seriais)."""
     if valor is None or pd.isna(valor) or str(valor).strip() in ["", "None", "NaT", "nan", "NAT", "0", "0.0"]:
         return str(date.today())
     
-    # Se for número serial do Excel
     try:
         val_float = float(valor)
         if val_float > 1000:
@@ -256,7 +254,7 @@ lista_modulos = [
     "🏢 Cadastro de Filiais",
     "🔄 Transferência entre Filiais",
     "💳 Pedido Saldo Alimentação",
-    "📥 Importar Excel por Filial",
+    "📥 Importar Colaboradores por Filial",
     "📤 Exportar Dados",
     "📜 Histórico de Alterações"
 ]
@@ -825,17 +823,17 @@ elif menu == "💳 Pedido Saldo Alimentação":
             str_lit.dataframe(df_hist_va, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (100% BLINDADO E FLEXÍVEL)
+# MÓDULO 9: IMPORTAR COLABORADORES POR FILIAL
 # ---------------------------------------------------------
-elif menu == "📥 Importar Excel por Filial":
+elif menu == "📥 Importar Colaboradores por Filial":
     str_lit.title("📥 Importar Colaboradores por Filial (Leitura Flexível e Robusta)")
-    str_lit.write("Selecione a filial e faça o upload da planilha. O sistema reconhece automaticamente qualquer variação nos nomes das colunas e formatos de data.")
+    str_lit.write("Selecione a filial e faça o upload da planilha (Formatos suportados: .xlsx, .xlsm, .xls, .csv). O sistema reconhece automaticamente qualquer variação nos nomes das colunas e formatos de data.")
     
     if not filiais_nome_para_id:
         str_lit.warning("Cadastre uma filial primeiro.")
     else:
         filial_import_nome = str_lit.selectbox("Filial de Destino:", options=list(filiais_nome_para_id.keys()))
-        uploaded_file = str_lit.file_uploader("Arquivo de Planilha (.xlsx, .xls, .csv)", type=["xlsx", "xls", "csv"])
+        uploaded_file = str_lit.file_uploader("Arquivo de Planilha (.xlsx, .xlsm, .xls, .csv)", type=["xlsx", "xlsm", "xls", "csv"])
         
         if uploaded_file is not None:
             try:
@@ -843,7 +841,8 @@ elif menu == "📥 Importar Excel por Filial":
                 if nome_arq.endswith('.csv'):
                     df_import = pd.read_csv(uploaded_file)
                 else:
-                    df_import = pd.read_excel(uploaded_file, engine='openpyxl' if not nome_arq.endswith('.xls') else 'xlrd')
+                    engine_usado = 'xlrd' if nome_arq.endswith('.xls') else 'openpyxl'
+                    df_import = pd.read_excel(uploaded_file, engine=engine_usado)
                 
                 str_lit.write("Prévia dos dados encontrados no arquivo:")
                 str_lit.dataframe(df_import.head(), use_container_width=True)
@@ -857,12 +856,10 @@ elif menu == "📥 Importar Excel por Filial":
                     
                     for _, row in df_import.iterrows():
                         try:
-                            # Converte todas as chaves da linha removendo acentos, espaços e convertendo para minúsculas
                             row_dict = {}
                             for k, v in row.to_dict().items():
                                 if pd.notna(k):
                                     k_limpo = str(k).strip().lower()
-                                    # Normalizações comuns para ignorar acentuação e variações de digitação
                                     k_limpo = k_limpo.replace('á', 'a').replace('à', 'a').replace('ã', 'a').replace('â', 'a')
                                     k_limpo = k_limpo.replace('é', 'e').replace('ê', 'e')
                                     k_limpo = k_limpo.replace('í', 'i')
@@ -871,16 +868,14 @@ elif menu == "📥 Importar Excel por Filial":
                                     k_limpo = k_limpo.replace('ç', 'c')
                                     row_dict[k_limpo] = v
 
-                            # Busca flexível por qualquer sinônimo para Matrícula
                             mat = ""
                             for k_cand in ['matricula', 'mat', 'id', 'codigo', 'cod']:
                                 if k_cand in row_dict and pd.notna(row_dict[k_cand]):
                                     mat = str(row_dict[k_cand]).strip()
-                                    if mat.endswith('.0'):  # Remove casas decimais indesejadas do Excel
+                                    if mat.endswith('.0'):
                                         mat = mat[:-2]
                                     break
                             
-                            # Busca flexível por qualquer sinônimo para Nome / Empregado
                             nom = ""
                             for k_cand in ['empregado', 'nome', 'funcionario', 'colaborador', 'trab']:
                                 if k_cand in row_dict and pd.notna(row_dict[k_cand]):
@@ -890,7 +885,6 @@ elif menu == "📥 Importar Excel por Filial":
                             if not mat or mat == 'nan' or not nom or nom == 'nan':
                                 continue
                             
-                            # Tipo e Subtipo de Movimentação
                             t_mov = "Entrada"
                             for k_cand in ['tipo', 'tipomovimentacao', 'movimento']:
                                 if k_cand in row_dict and pd.notna(row_dict[k_cand]):
@@ -903,7 +897,6 @@ elif menu == "📥 Importar Excel por Filial":
                                     sub_mov = str(row_dict[k_cand]).strip()
                                     break
                             
-                            # Data de Movimentação
                             raw_dt_mov = None
                             for k_cand in ['datamovimentacao', 'data', 'dtmovimentacao']:
                                 if k_cand in row_dict and pd.notna(row_dict[k_cand]):
@@ -911,14 +904,12 @@ elif menu == "📥 Importar Excel por Filial":
                                     break
                             dt_mov = parse_data_rigorosa(raw_dt_mov)
                             
-                            # Cargo / Função
                             cargo = "Não Informado"
                             for k_cand in ['cargo', 'funcao', 'funçao', 'ocupacao']:
                                 if k_cand in row_dict and pd.notna(row_dict[k_cand]):
                                     cargo = str(row_dict[k_cand]).strip()
                                     break
                             
-                            # Data de Admissão
                             raw_dt_adm = None
                             for k_cand in ['dataadmissao', 'admissao', 'dtadmissao', 'contratacao']:
                                 if k_cand in row_dict and pd.notna(row_dict[k_cand]):
@@ -926,14 +917,12 @@ elif menu == "📥 Importar Excel por Filial":
                                     break
                             dt_adm = parse_data_rigorosa(raw_dt_adm)
                             
-                            # Tipo de Contratação
                             t_cont = "CLT"
                             for k_cand in ['contratacao', 'tipocontratacao', 'regime']:
                                 if k_cand in row_dict and pd.notna(row_dict[k_cand]):
                                     t_cont = str(row_dict[k_cand]).strip()
                                     break
                             
-                            # Outros dados opcionais
                             cpf_val = ""
                             for k_cand in ['cpf']:
                                 if k_cand in row_dict and pd.notna(row_dict[k_cand]):
