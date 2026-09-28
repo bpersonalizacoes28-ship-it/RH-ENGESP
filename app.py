@@ -92,7 +92,6 @@ def init_db():
         )
     ''')
     
-    # Migrações seguras de colunas caso o banco já exista
     novas_colunas = [
         ("status_colaborador", "TEXT DEFAULT 'Ativo'"),
         ("data_demissao", "DATE"),
@@ -193,20 +192,6 @@ def converter_para_date(valor):
         pass
     return None
 
-def calcular_proxima_folga(data_retorno, dias):
-    dt = converter_para_date(data_retorno)
-    if dt and dias:
-        try:
-            proxima = dt + timedelta(days=int(dias))
-            return proxima
-        except Exception:
-            return None
-    return None
-
-def parse_date_para_input(valor_str):
-    dt = converter_para_date(valor_str)
-    return dt if dt else date.today()
-
 def formatar_data_br(valor):
     dt = converter_para_date(valor)
     if dt:
@@ -228,7 +213,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL (COM O MÓDULO FILIAIS LOGO ABAIXO DO DASHBOARD)
+# MENU PRINCIPAL
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -247,7 +232,6 @@ st.markdown("### 🏢 Sistema de Gestão ADM")
 menu = st.selectbox("📌 **SELECIONE O MÓDULO DESEJADO ABAIXO:**", lista_modulos, key="menu_principal_topo")
 st.markdown("---")
 
-# Barra lateral para upload de logo
 st.sidebar.markdown("## 🏢 ENGESP")
 st.sidebar.write("Engenharia São Patrício - Gestão ADM")
 st.sidebar.markdown("---")
@@ -258,7 +242,7 @@ if logo_file is not None:
 st.sidebar.markdown("---")
 
 # ---------------------------------------------------------
-# MÓDULO 1: DASHBOARD (PAINEL DE GESTÃO)
+# MÓDULO 1: DASHBOARD
 # ---------------------------------------------------------
 if menu == "📊 Dashboard / Consulta":
     st.title("📊 Painel de Gestão")
@@ -322,18 +306,18 @@ if menu == "📊 Dashboard / Consulta":
         st.dataframe(df_filtered, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO NOVO: FILIAIS (FILTRAR TUDO PERTINENTE À FILIAL)
+# MÓDULO: FILIAIS
 # ---------------------------------------------------------
 elif menu == "🏢 Filiais":
     st.title("🏢 Gestão e Filtragem por Filial")
-    st.write("Selecione abaixo uma filial para consultar instantaneamente todas as informações pertinentes a ela (colaboradores, status, movimentações e histórico).")
+    st.write("Selecione abaixo uma filial para consultar instantaneamente todas as informações pertinentes a ela.")
 
     conn = sqlite3.connect(DB_FILE)
     df_filiais_list = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais ORDER BY nome", conn)
     conn.close()
 
     if df_filiais_list.empty:
-        st.warning("⚠️ Nenhuma filial cadastrada no sistema. Cadastre filiais no módulo correspondente.")
+        st.warning("⚠️ Nenhuma filial cadastrada no sistema.")
     else:
         nomes_filiais = df_filiais_list['nome'].tolist()
         filial_selecionada_detalhe = st.selectbox("🏢 **Selecione a Filial para Consulta:**", nomes_filiais)
@@ -363,34 +347,32 @@ elif menu == "🏢 Filiais":
             df_colab_filial['Data Movimentação'] = df_colab_filial['Data Movimentação'].apply(formatar_data_br)
 
         col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Total de Colaboradores na Filial", len(df_colab_filial))
+        col_m1.metric("Total de Colaboradores", len(df_colab_filial))
         ativos_filial = len(df_colab_filial[df_colab_filial['Status'] == 'Ativo']) if not df_colab_filial.empty else 0
-        col_m2.metric("Colaboradores Ativos", ativos_filial)
+        col_m2.metric("Ativos", ativos_filial)
         demitidos_filial = len(df_colab_filial[df_colab_filial['Status'] == 'Demitido']) if not df_colab_filial.empty else 0
-        col_m3.metric("Colaboradores Demitidos", demitidos_filial)
+        col_m3.metric("Demitidos", demitidos_filial)
 
         st.markdown("---")
         st.subheader(f"📋 Relação de Colaboradores - {filial_selecionada_detalhe}")
         if df_colab_filial.empty:
-            st.info("Nenhum colaborador vinculado a esta filial no momento.")
+            st.info("Nenhum colaborador vinculado a esta filial.")
         else:
             st.dataframe(df_colab_filial, use_container_width=True)
 
-            # Botão de exportação específica da filial
             output_filial = io.BytesIO()
             with pd.ExcelWriter(output_filial, engine='openpyxl') as writer:
                 df_colab_filial.to_excel(writer, index=False, sheet_name=filial_selecionada_detalhe[:30])
-            excel_filial_bytes = output_filial.getvalue()
-
+            
             st.download_button(
                 label=f"📥 Baixar Relatório da Filial ({filial_selecionada_detalhe}) em Excel",
-                data=excel_filial_bytes,
+                data=output_filial.getvalue(),
                 file_name=f"relatorio_filial_{filial_selecionada_detalhe.replace(' ', '_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
 # ---------------------------------------------------------
-# MÓDULO 2: NOVO COLABORADOR / ADMISSÃO (ATUALIZADO)
+# MÓDULO 2: NOVO COLABORADOR / ADMISSÃO
 # ---------------------------------------------------------
 elif menu == "➕ Novo Colaborador / Admissão":
     st.title("➕ Admissão / Movimentação de Empregado")
@@ -534,7 +516,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         sub_atual = dados[26] if len(dados) > 26 and dados[26] in subtipo_opts else "Admissão"
                         subtipo_mov_e = m2.selectbox("Subtipo", subtipo_opts, index=subtipo_opts.index(sub_atual))
                         
-                        dt_mov_val = parse_date_para_input(dados[27]) if len(dados) > 27 and dados[27] else date.today()
+                        dt_mov_val = converter_para_date(dados[27]) if len(dados) > 27 and dados[27] else date.today()
                         data_mov_e = m3.date_input("Data da Movimentação", value=dt_mov_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
                         c_contr1, c_contr2 = st.columns(2)
@@ -542,7 +524,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         contrato_atual = dados[29] if len(dados) > 29 and dados[29] in contrato_opts else "CLT"
                         tipo_contratacao_e = c_contr1.selectbox("Tipo de Contratação", contrato_opts, index=contrato_opts.index(contrato_atual))
                         
-                        dt_adm_val = parse_date_para_input(dados[9])
+                        dt_adm_val = converter_para_date(dados[9]) if dados[9] else date.today()
                         data_admissao_e = c_contr2.date_input("Data de Admissão", value=dt_adm_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
                         observacoes_e = st.text_area("Observações", value=dados[28] if len(dados) > 28 and dados[28] else "")
@@ -795,19 +777,28 @@ elif menu == "💳 Pedido Saldo Alimentação":
             st.dataframe(df_hist_va, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 7: IMPORTAR EXCEL POR FILIAL
+# MÓDULO 7: IMPORTAR EXCEL POR FILIAL (QUALQUER FORMATO)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Excel por Filial":
-    st.title("📥 Importar Dados via Excel")
+    st.title("📥 Importar Dados via Planilha (Qualquer Formato)")
+    st.write("Faça o upload de planilhas em qualquer formato (.xlsx, .xlsm, .xls, .xlsb, .csv, etc.).")
+    
     if not filiais_nome_para_id:
         st.warning("Cadastre uma filial primeiro.")
     else:
         filial_import_nome = st.selectbox("Filial de Destino:", options=list(filiais_nome_para_id.keys()))
-        uploaded_file = st.file_uploader("Arquivo Excel", type=["xlsx", "xls"])
+        uploaded_file = st.file_uploader("Arquivo de Planilha (Qualquer Extensão)", type=None)
         
         if uploaded_file is not None:
             try:
-                df_import = pd.read_excel(uploaded_file)
+                # Tenta ler utilizando o engine adequado ou pandas padrão
+                nome_arq = uploaded_file.name.lower()
+                if nome_arq.endswith('.csv'):
+                    df_import = pd.read_csv(uploaded_file)
+                else:
+                    df_import = pd.read_excel(uploaded_file, engine='openpyxl' if not nome_arq.endswith('.xls') else 'xlrd')
+                
+                st.write("Prévia dos dados encontrados no arquivo:")
                 st.dataframe(df_import.head(), use_container_width=True)
                 
                 if st.button("Processar Importação"):
@@ -835,7 +826,7 @@ elif menu == "📥 Importar Excel por Filial":
                     conn.close()
                     st.success(f"{importados} registros importados com sucesso!")
             except Exception as e:
-                st.error(f"Erro: {e}")
+                st.error(f"Erro ao ler o arquivo: {e}. Certifique-se de que a planilha possui colunas válidas como Matrícula e Nome/Empregado.")
 
 # ---------------------------------------------------------
 # MÓDULO 8: EXPORTAR DADOS
