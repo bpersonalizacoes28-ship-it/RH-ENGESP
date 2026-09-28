@@ -213,11 +213,12 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL
+# MENU PRINCIPAL (COM O MÓDULO COLABORADORES)
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
     "🏢 Filiais",
+    "👥 Colaboradores",
     "➕ Novo Colaborador / Admissão",
     "✏️ Editar Cadastro do Colaborador",
     "🏢 Cadastro de Filiais",
@@ -249,11 +250,11 @@ if menu == "📊 Dashboard / Consulta":
     
     conn = sqlite3.connect(DB_FILE)
     query = '''
-        SELECT c.id, c.matricula, c.nome, c.funcao as "Cargo / Função", c.cpf, c.rg, c.cnpj_empresa,
-               f.nome as filial, c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo",
+        SELECT c.id, c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+               c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo",
                c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-               c.data_nascimento, c.data_contratacao, c.observacoes,
-               c.status_colaborador as "Status", c.data_demissao as "Data Demissão"
+               f.nome as filial, c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão",
+               c.observacoes as "Observações", c.status_colaborador as "Status", c.data_demissao as "Data Demissão"
         FROM colaboradores c
         LEFT JOIN filiais f ON c.filial_id = f.id
     '''
@@ -276,15 +277,13 @@ if menu == "📊 Dashboard / Consulta":
     if df.empty:
         st.info("Nenhum colaborador cadastrado para esta seleção.")
     else:
-        colunas_data = ['data_nascimento', 'data_contratacao', 'Data Movimentação', 'Data Demissão']
+        colunas_data = ['Data Admissão', 'Data Movimentação', 'Data Demissão']
         for col in colunas_data:
             if col in df.columns:
                 df[col] = df[col].apply(formatar_data_br)
 
-        if 'cpf' in df.columns:
-            df['cpf'] = df['cpf'].apply(formatar_cpf)
-        if 'cnpj_empresa' in df.columns:
-            df['cnpj_empresa'] = df['cnpj_empresa'].apply(formatar_cnpj)
+        if 'CPF' in df.columns:
+            df['CPF'] = df['CPF'].apply(formatar_cpf)
 
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -292,7 +291,7 @@ if menu == "📊 Dashboard / Consulta":
         with col2:
             filtro_subtipo = st.multiselect("Filtrar por Subtipo:", options=df['Subtipo'].dropna().unique())
         with col3:
-            filtro_status_colab = st.multiselect("Filtrar por Status (Ativo/Demitido):", options=df['Status'].dropna().unique(), default=["Ativo"])
+            filtro_status_colab = st.multiselect("Filtrar por Status:", options=df['Status'].dropna().unique(), default=["Ativo"])
 
         df_filtered = df.copy()
         if filtro_tipo:
@@ -306,7 +305,7 @@ if menu == "📊 Dashboard / Consulta":
         st.dataframe(df_filtered, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO: FILIAIS
+# MÓDULO 2: FILIAIS
 # ---------------------------------------------------------
 elif menu == "🏢 Filiais":
     st.title("🏢 Gestão e Filtragem por Filial")
@@ -372,7 +371,65 @@ elif menu == "🏢 Filiais":
             )
 
 # ---------------------------------------------------------
-# MÓDULO 2: NOVO COLABORADOR / ADMISSÃO
+# MÓDULO 3: COLABORADORES (COM FILTRO POR FILIAL)
+# ---------------------------------------------------------
+elif menu == "👥 Colaboradores":
+    st.title("👥 Consulta de Colaboradores por Filial")
+    st.write("Filtre e visualize exclusivamente os colaboradores da filial selecionada abaixo.")
+
+    conn = sqlite3.connect(DB_FILE)
+    df_filiais_colab = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
+    conn.close()
+
+    if df_filiais_colab.empty:
+        st.warning("⚠️ Nenhuma filial cadastrada.")
+    else:
+        lista_nomes_f = ["Todas as Filiais"] + df_filiais_colab['nome'].tolist()
+        filial_escolhida_colab_mod = st.selectbox("🏢 Selecione a Filial para filtrar os colaboradores:", lista_nomes_f)
+
+        conn = sqlite3.connect(DB_FILE)
+        if filial_escolhida_colab_mod == "Todas as Filiais":
+            query_c = '''
+                SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                       c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                       c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                       f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                       c.status_colaborador as "Status", c.observacoes as "Observações"
+                FROM colaboradores c
+                LEFT JOIN filiais f ON c.filial_id = f.id
+                ORDER BY c.nome
+            '''
+            df_c_res = pd.read_sql_query(query_c, conn)
+        else:
+            f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
+            query_c = '''
+                SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                       c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                       c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                       f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                       c.status_colaborador as "Status", c.observacoes as "Observações"
+                FROM colaboradores c
+                LEFT JOIN filiais f ON c.filial_id = f.id
+                WHERE c.filial_id = ?
+                ORDER BY c.nome
+            '''
+            df_c_res = pd.read_sql_query(query_c, conn, params=(f_id_sel,))
+        conn.close()
+
+        if not df_c_res.empty:
+            df_c_res['CPF'] = df_c_res['CPF'].apply(formatar_cpf)
+            df_c_res['Data Admissão'] = df_c_res['Data Admissão'].apply(formatar_data_br)
+            df_c_res['Data Movimentação'] = df_c_res['Data Movimentação'].apply(formatar_data_br)
+
+        st.metric("Colaboradores Listados", len(df_c_res))
+        st.markdown("---")
+        if df_c_res.empty:
+            st.info("Nenhum colaborador encontrado para esta seleção.")
+        else:
+            st.dataframe(df_c_res, use_container_width=True)
+
+# ---------------------------------------------------------
+# MÓDULO 4: NOVO COLABORADOR / ADMISSÃO
 # ---------------------------------------------------------
 elif menu == "➕ Novo Colaborador / Admissão":
     st.title("➕ Admissão / Movimentação de Empregado")
@@ -443,7 +500,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                     st.error("Erro: Matrícula já cadastrada no sistema.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: EDITAR CADASTRO COMPLETO
+# MÓDULO 5: EDITAR CADASTRO COMPLETO
 # ---------------------------------------------------------
 elif menu == "✏️ Editar Cadastro do Colaborador":
     st.title("✏️ Editar Cadastro do Colaborador")
@@ -570,7 +627,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                                 st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 4: CADASTRO DE FILIAIS
+# MÓDULO 6: CADASTRO DE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🏢 Cadastro de Filiais":
     st.title("🏢 Gestão e Cadastro de Filiais")
@@ -642,7 +699,7 @@ elif menu == "🏢 Cadastro de Filiais":
                             st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 5: TRANSFERÊNCIA ENTRE FILIAIS
+# MÓDULO 7: TRANSFERÊNCIA ENTRE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🔄 Transferência entre Filiais":
     st.title("🔄 Transferência de Empregado entre Filiais")
@@ -686,7 +743,7 @@ elif menu == "🔄 Transferência entre Filiais":
                     st.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 6: PEDIDO SALDO ALIMENTAÇÃO
+# MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
     st.title("💳 Pedido e Gestão de Saldo do Cartão Alimentação")
@@ -777,11 +834,11 @@ elif menu == "💳 Pedido Saldo Alimentação":
             st.dataframe(df_hist_va, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 7: IMPORTAR EXCEL POR FILIAL (QUALQUER FORMATO)
+# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (AUTOMÁTICO E COMPLETO)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Excel por Filial":
-    st.title("📥 Importar Dados via Planilha (Qualquer Formato)")
-    st.write("Faça o upload de planilhas em qualquer formato (.xlsx, .xlsm, .xls, .xlsb, .csv, etc.).")
+    st.title("📥 Importar Colaboradores por Filial (Automático)")
+    st.write("Selecione a filial de destino e faça o upload da planilha (qualquer formato). Os dados serão cadastrados automaticamente respeitando os campos de movimentação, cargo, datas, tipo de contratação, documentos e observações.")
     
     if not filiais_nome_para_id:
         st.warning("Cadastre uma filial primeiro.")
@@ -791,7 +848,6 @@ elif menu == "📥 Importar Excel por Filial":
         
         if uploaded_file is not None:
             try:
-                # Tenta ler utilizando o engine adequado ou pandas padrão
                 nome_arq = uploaded_file.name.lower()
                 if nome_arq.endswith('.csv'):
                     df_import = pd.read_csv(uploaded_file)
@@ -801,35 +857,72 @@ elif menu == "📥 Importar Excel por Filial":
                 st.write("Prévia dos dados encontrados no arquivo:")
                 st.dataframe(df_import.head(), use_container_width=True)
                 
-                if st.button("Processar Importação"):
+                if st.button("Processar e Vincular Importação"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     filial_id_val = filiais_nome_para_id[filial_import_nome]
                     importados = 0
+                    atualizados = 0
                     
                     for _, row in df_import.iterrows():
                         try:
-                            mat = str(row.get('matricula', row.get('Matrícula', '')))
-                            nom = str(row.get('nome', row.get('Nome', row.get('Empregado', ''))))
+                            # Ordem idêntica ao módulo Admissão: Empregado, Matrícula, Tipo, Subtipo, Data Movimentação, Cargo, Data Admissão, Contratação, CPF, RG, Observações
+                            mat = str(row.get('matricula', row.get('Matrícula', ''))).strip()
+                            nom = str(row.get('empregado', row.get('Empregado', row.get('nome', row.get('Nome', ''))))).strip()
                             if not mat or mat == 'nan' or not nom or nom == 'nan':
                                 continue
+                            
+                            t_mov = str(row.get('tipo', row.get('Tipo', 'Entrada'))).strip()
+                            sub_mov = str(row.get('subtipo', row.get('Subtipo', 'Admissão'))).strip()
+                            dt_mov = str(row.get('data_movimentacao', row.get('Data Movimentação', date.today()))).strip()
+                            cargo = str(row.get('cargo', row.get('Cargo', 'Não Informado'))).strip()
+                            dt_adm = str(row.get('data_admissao', row.get('Data Admissão', date.today()))).strip()
+                            t_cont = str(row.get('tipo_contratacao', row.get('Contratação', 'CLT'))).strip()
+                            cpf_val = formatar_cpf(row.get('cpf', row.get('CPF', '')))
+                            rg_val = str(row.get('rg', row.get('RG', ''))).strip()
+                            obs_val = str(row.get('observacoes', row.get('Observações', ''))).strip()
+                            
+                            status_c = "Demitido" if sub_mov == "Demissão" or t_mov == "Saída" else "Ativo"
+                            dt_dem = dt_mov if status_c == "Demitido" else None
+
                             c.execute('''
-                                INSERT OR IGNORE INTO colaboradores (
-                                    matricula, nome, funcao, filial_id, status_colaborador, cnpj_empresa, tipo_movimentacao, subtipo_movimentacao
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            ''', (mat, nom, str(row.get('funcao', row.get('Cargo', 'Não Informado'))), filial_id_val, 'Ativo', '37.608.361/0001-25', 'Entrada', 'Admissão'))
-                            if c.rowcount > 0:
-                                importados += 1
+                                INSERT INTO colaboradores (
+                                    matricula, nome, cpf, rg, funcao, filial_id,
+                                    data_contratacao, status_colaborador, data_demissao,
+                                    tipo_movimentacao, subtipo_movimentacao, data_movimentacao,
+                                    observacoes, tipo_contratacao, cnpj_empresa
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ON CONFLICT(matricula) DO UPDATE SET
+                                    nome = excluded.nome,
+                                    cpf = excluded.cpf,
+                                    rg = excluded.rg,
+                                    funcao = excluded.funcao,
+                                    filial_id = excluded.filial_id,
+                                    data_contratacao = excluded.data_contratacao,
+                                    status_colaborador = excluded.status_colaborador,
+                                    data_demissao = excluded.data_demissao,
+                                    tipo_movimentacao = excluded.tipo_movimentacao,
+                                    subtipo_movimentacao = excluded.subtipo_movimentacao,
+                                    data_movimentacao = excluded.data_movimentacao,
+                                    observacoes = excluded.observacoes,
+                                    tipo_contratacao = excluded.tipo_contratacao
+                            ''', (
+                                mat, nom, cpf_val, rg_val, cargo, filial_id_val,
+                                dt_adm, status_c, dt_dem, t_mov, sub_mov,
+                                dt_mov, obs_val, t_cont, "37.608.361/0001-25"
+                            ))
+                            importados += 1
                         except Exception:
                             pass
+                            
                     conn.commit()
                     conn.close()
-                    st.success(f"{importados} registros importados com sucesso!")
+                    st.success(f"Importação concluída com sucesso! {importados} registros integrados automaticamente na filial {filial_import_nome} e disponíveis em todos os módulos.")
             except Exception as e:
-                st.error(f"Erro ao ler o arquivo: {e}. Certifique-se de que a planilha possui colunas válidas como Matrícula e Nome/Empregado.")
+                st.error(f"Erro ao ler o arquivo: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 8: EXPORTAR DADOS
+# MÓDULO 10: EXPORTAR DADOS
 # ---------------------------------------------------------
 elif menu == "📤 Exportar Dados":
     st.title("📤 Exportar Dados")
@@ -859,7 +952,7 @@ elif menu == "📤 Exportar Dados":
         )
 
 # ---------------------------------------------------------
-# MÓDULO 9: HISTÓRICO DE ALTERAÇÕES
+# MÓDULO 11: HISTÓRICO DE ALTERAÇÕES
 # ---------------------------------------------------------
 elif menu == "📜 Histórico de Alterações":
     st.title("📜 Histórico de Alterações")
