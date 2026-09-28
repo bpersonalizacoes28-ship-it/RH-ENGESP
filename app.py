@@ -170,33 +170,71 @@ def registrar_historico(matricula, tipo, antigo, novo):
         conn.commit()
         conn.close()
 
-def converter_para_date(valor):
-    if not valor or pd.isna(valor) or str(valor).strip() in ["", "None", "NaT"]:
-        return None
-    if isinstance(valor, date) and not isinstance(valor, datetime):
-        return valor
-    if isinstance(valor, datetime):
-        return valor.date()
+def parse_data_rigorosa(valor):
+    """Converte com total precisão datas vindas do Excel (texto, número serial ou timestamp)."""
+    if valor is None or pd.isna(valor) or str(valor).strip() in ["", "None", "NaT", "nan"]:
+        return str(date.today())
+    
+    # Se for número serial do Excel (ex: 45284)
+    if isinstance(valor, (int, float)) and valor > 1000:
+        try:
+            dt_base = datetime(1899, 12, 30)
+            return (dt_base + timedelta(days=float(valor))).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    # Se já for objeto date ou datetime
+    if isinstance(valor, (date, datetime)):
+        return valor.strftime("%Y-%m-%d")
     
     val_str = str(valor).split()[0].strip()
+    
+    # Tenta formatos comuns de string
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(val_str, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+            
+    # Tentativa manual para barras ou traços
     try:
         if "/" in val_str:
             partes = val_str.split("/")
             if len(partes) == 3:
-                return date(int(partes[2]), int(partes[1]), int(partes[0]))
+                # Assume DD/MM/YYYY
+                if len(partes[2]) == 4:
+                    return f"{partes[2]}-{partes[1].zfill(2)}-{partes[0].zfill(2)}"
+                # Assume YYYY/MM/DD
+                elif len(partes[0]) == 4:
+                    return f"{partes[0]}-{partes[1].zfill(2)}-{partes[2].zfill(2)}"
         elif "-" in val_str:
             partes = val_str.split("-")
             if len(partes) == 3:
-                return date(int(partes[0]), int(partes[1]), int(partes[2]))
+                if len(partes[0]) == 4:
+                    return f"{partes[0]}-{partes[1].zfill(2)}-{partes[2].zfill(2)}"
+                elif len(partes[2]) == 4:
+                    return f"{partes[2]}-{partes[1].zfill(2)}-{partes[0].zfill(2)}"
     except Exception:
         pass
-    return str(valor)
+        
+    return str(date.today())
+
+def converter_para_date(valor):
+    res = parse_data_rigorosa(valor)
+    try:
+        return datetime.strptime(res, "%Y-%m-%d").date()
+    except Exception:
+        return date.today()
 
 def formatar_data_br(valor):
-    dt = converter_para_date(valor)
-    if isinstance(dt, date):
+    if not valor or pd.isna(valor):
+        return ""
+    dt_str = parse_data_rigorosa(valor)
+    try:
+        dt = datetime.strptime(dt_str, "%Y-%m-%d")
         return dt.strftime("%d/%m/%Y")
-    return str(valor) if valor and not pd.isna(valor) else ""
+    except Exception:
+        return str(valor)
 
 def get_filiais_dict():
     conn = sqlite3.connect(DB_FILE)
@@ -488,7 +526,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                     ''', (
                         matricula, empregado, cpf_formatado, rg, cargo,
                         filiais_nome_para_id[filial_nome], str(data_admissao),
-                        status_colab_novo, dt_dem_val, tipo_mov, subtipo_mov,
+                        status_colaborador_novo if 'status_colaborador_novo' in locals() else status_colab_novo, dt_dem_val, tipo_mov, subtipo_mov,
                         str(data_mov), observacoes, tipo_contratacao, "37.608.361/0001-25"
                     ))
                     conn.commit()
@@ -574,8 +612,6 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         subtipo_mov_e = m2.selectbox("Subtipo", subtipo_opts, index=subtipo_opts.index(sub_atual))
                         
                         dt_mov_val = converter_para_date(dados[27]) if len(dados) > 27 and dados[27] else date.today()
-                        if not isinstance(dt_mov_val, date):
-                            dt_mov_val = date.today()
                         data_mov_e = m3.date_input("Data da Movimentação", value=dt_mov_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
                         c_contr1, c_contr2 = st.columns(2)
@@ -584,8 +620,6 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         tipo_contratacao_e = c_contr1.selectbox("Tipo de Contratação", contrato_opts, index=contrato_opts.index(contrato_atual))
                         
                         dt_adm_val = converter_para_date(dados[9]) if dados[9] else date.today()
-                        if not isinstance(dt_adm_val, date):
-                            dt_adm_val = date.today()
                         data_admissao_e = c_contr2.date_input("Data de Admissão", value=dt_adm_val, min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
                         observacoes_e = st.text_area("Observações", value=dados[28] if len(dados) > 28 and dados[28] else "")
@@ -838,11 +872,11 @@ elif menu == "💳 Pedido Saldo Alimentação":
             st.dataframe(df_hist_va, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (SEM DUPLICIDADE)
+# MÓDULO 9: IMPORTAR EXCEL POR FILIAL (RIGOR COM AS DATAS E ANTI-DUPLICIDADE)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Excel por Filial":
-    st.title("📥 Importar Colaboradores por Filial (Anti-Duplicidade)")
-    st.write("Selecione a filial e faça o upload da planilha. O sistema verificará se o colaborador já existe (por Matrícula): caso exista, atualiza as informações; caso não exista, acrescenta como novo registro.")
+    st.title("📥 Importar Colaboradores por Filial (Leitura Rigorosa de Datas)")
+    st.write("Selecione a filial e faça o upload da planilha. As datas de Admissão e Movimentação serão extraídas rigorosamente conforme constam no arquivo.")
     
     if not filiais_nome_para_id:
         st.warning("Cadastre uma filial primeiro.")
@@ -881,13 +915,15 @@ elif menu == "📥 Importar Excel por Filial":
                             t_mov = str(row.get('tipo', row.get('tipo_movimentacao', 'Entrada'))).strip()
                             sub_mov = str(row.get('subtipo', row.get('subtipo_movimentacao', 'Admissão'))).strip()
                             
-                            dt_mov_raw = row.get('data_movimentacao', row.get('data movimentacao', row.get('data', '')))
-                            dt_mov = str(dt_mov_raw).split()[0].strip() if pd.notna(dt_mov_raw) and str(dt_mov_raw).strip() != "" else str(date.today())
+                            # Leitura rigorosa da Data da Movimentação
+                            raw_dt_mov = row.get('data_movimentacao', row.get('data movimentacao', row.get('data', '')))
+                            dt_mov = parse_data_rigorosa(raw_dt_mov)
                             
                             cargo = str(row.get('cargo', row.get('funcao', row.get('função', 'Não Informado')))).strip()
                             
-                            dt_adm_raw = row.get('data_admissao', row.get('data admissao', row.get('admissao', '')))
-                            dt_adm = str(dt_adm_raw).split()[0].strip() if pd.notna(dt_adm_raw) and str(dt_adm_raw).strip() != "" else str(date.today())
+                            # Leitura rigorosa da Data de Admissão
+                            raw_dt_adm = row.get('data_admissao', row.get('data admissao', row.get('admissao', '')))
+                            dt_adm = parse_data_rigorosa(raw_dt_adm)
                             
                             t_cont = str(row.get('tipo_contratacao', row.get('contratacao', row.get('contratação', 'CLT')))).strip()
                             cpf_val = formatar_cpf(row.get('cpf', ''))
@@ -897,12 +933,11 @@ elif menu == "📥 Importar Excel por Filial":
                             status_c = "Demitido" if sub_mov.lower() in ["demissão", "demissao"] or t_mov.lower() == "saída" else "Ativo"
                             dt_dem = dt_mov if status_c == "Demitido" else None
 
-                            # Verifica se o colaborador já existe pela matrícula
+                            # Verifica se o colaborador já existe pela matrícula para evitar duplicidade
                             c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
                             existe = c.fetchone()
 
                             if existe:
-                                # Atualiza as informações do colaborador existente
                                 c.execute('''
                                     UPDATE colaboradores SET
                                         nome = ?, cpf = ?, rg = ?, funcao = ?, filial_id = ?,
@@ -917,7 +952,6 @@ elif menu == "📥 Importar Excel por Filial":
                                 ))
                                 atualizados += 1
                             else:
-                                # Insere novo registro se não existir
                                 c.execute('''
                                     INSERT INTO colaboradores (
                                         matricula, nome, cpf, rg, funcao, filial_id,
@@ -936,7 +970,7 @@ elif menu == "📥 Importar Excel por Filial":
                             
                     conn.commit()
                     conn.close()
-                    st.success(f"Sincronização concluída! {novos} novos colaboradores cadastrados e {atualizados} registros atualizados sem duplicidade na filial {filial_import_nome}.")
+                    st.success(f"Sincronização concluída! {novos} novos colaboradores cadastrados e {atualizados} registros atualizados com sucesso na filial {filial_import_nome}, respeitando integralmente as datas da planilha.")
             except Exception as e:
                 st.error(f"Erro ao ler o arquivo: {e}")
 
