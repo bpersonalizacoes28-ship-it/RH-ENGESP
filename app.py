@@ -133,7 +133,6 @@ def init_db():
         )
     """)
 
-  # Garante a estrutura correta recriando a tabela de histórico de VA
   c.execute("DROP TABLE IF EXISTS historico_pedidos_va")
   c.execute("""
         CREATE TABLE historico_pedidos_va (
@@ -293,7 +292,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL (ORDEM SOLICITADA)
+# MENU PRINCIPAL
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -437,7 +436,7 @@ elif menu == "🏢 Cadastro de Filiais":
     str_lit.info("Nenhuma filial cadastrada.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (Com suporte a XLSM, XLSX, XLS, CSV)
+# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
 # ---------------------------------------------------------
 elif menu == "📥 Importar Colaboradores por Filial":
   str_lit.title("📥 Importação de Colaboradores em Lote")
@@ -459,7 +458,6 @@ elif menu == "📥 Importar Colaboradores por Filial":
         if nome_arq.endswith(".csv"):
           df_imp = pd.read_csv(arquivo_upload)
         else:
-          # openpyxl gerencia xlsx e xlsm perfeitamente
           df_imp = pd.read_excel(arquivo_upload, engine="openpyxl")
 
         str_lit.write("Pré-visualização dos dados importados:")
@@ -1124,7 +1122,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                 )
 
 # ---------------------------------------------------------
-# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO
+# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO (Com Botão de Exportação Excel)
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
   str_lit.title("💳 Pedido de Saldo / Cartão Alimentação")
@@ -1215,47 +1213,68 @@ elif menu == "💳 Pedido Saldo Alimentação":
           use_container_width=True,
       )
 
-      if str_lit.button("💾 Salvar e Registrar Pedido de Saldo Alimentação"):
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        for idx, row in df_editado_va.iterrows():
-          mat_orig = df_va_filial.iloc[idx]["matricula"]
-          c.execute(
-              """
-                        UPDATE colaboradores
-                        SET premiacao = ?, mobilidade = ?, alimentacao = ?, tipo_usuario_va = ?
-                        WHERE matricula = ?
-                    """,
-              (
-                  row["Premiação"],
-                  row["Mobilidade"],
-                  row["Alimentação"],
-                  row["Tags"],
-                  mat_orig,
-              ),
+      col_btn1, col_btn2 = str_lit.columns(2)
+
+      with col_btn1:
+        if str_lit.button("💾 Salvar e Registrar Pedido de Saldo Alimentação"):
+          conn = sqlite3.connect(DB_FILE)
+          c = conn.cursor()
+          for idx, row in df_editado_va.iterrows():
+            mat_orig = df_va_filial.iloc[idx]["matricula"]
+            c.execute(
+                """
+                            UPDATE colaboradores
+                            SET premiacao = ?, mobilidade = ?, alimentacao = ?, tipo_usuario_va = ?
+                            WHERE matricula = ?
+                        """,
+                (
+                    row["Premiação"],
+                    row["Mobilidade"],
+                    row["Alimentação"],
+                    row["Tags"],
+                    mat_orig,
+                ),
+            )
+            c.execute(
+                """
+                            INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, premiacao, mobilidade, alimentacao, tipo_usuario, data_registro)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                (
+                    mes_ano_ref,
+                    row["Obra"],
+                    mat_orig,
+                    row["CNPJ"],
+                    row["Nome Completo"],
+                    row["CPF"],
+                    row["Premiação"],
+                    row["Mobilidade"],
+                    row["Alimentação"],
+                    row["Tags"],
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+          conn.commit()
+          conn.close()
+          str_lit.success("Pedido de saldo alimentação registrado com sucesso!")
+
+      with col_btn2:
+        output_va = io.BytesIO()
+        with pd.ExcelWriter(output_va, engine="openpyxl") as writer:
+          df_editado_va.to_excel(
+              writer, index=False, sheet_name="Pedido_VA"
           )
-          c.execute(
-              """
-                        INSERT INTO historico_pedidos_va (mes_ano, filial_nome, matricula, cnpj_empresa, nome, cpf, premiacao, mobilidade, alimentacao, tipo_usuario, data_registro)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-              (
-                  mes_ano_ref,
-                  row["Obra"],
-                  mat_orig,
-                  row["CNPJ"],
-                  row["Nome Completo"],
-                  row["CPF"],
-                  row["Premiação"],
-                  row["Mobilidade"],
-                  row["Alimentação"],
-                  row["Tags"],
-                  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-              ),
-          )
-        conn.commit()
-        conn.close()
-        str_lit.success("Pedido de saldo alimentação registrado com sucesso!")
+        str_lit.download_button(
+            label="📥 Exportar este Pedido em Excel (.xlsx)",
+            data=output_va.getvalue(),
+            file_name=(
+                "pedido_va_"
+                f"{filial_va_sel.replace(' ', '_')}_{mes_ano_ref.replace('/', '-')}.xlsx"
+            ),
+            mime=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
 
 # ---------------------------------------------------------
 # MÓDULO 10: FOLHA DE PONTO
