@@ -1497,6 +1497,7 @@ elif menu == "⏱️ Folha de Ponto":
                 use_container_width=True
             )
 
+            # CÁLCULO DA SOMATÓRIA EM TEMPO REAL ANTES DE SALVAR
             total_he_50_calc = 0.0
             total_he_100_calc = 0.0
             dicionario_salvar = {}
@@ -1507,13 +1508,13 @@ elif menu == "⏱️ Folha de Ponto":
                 qtd_convertida = converter_hora_flexivel(row["Horas"])
                 dicionario_salvar[dia_str] = row["Horas"]
 
-                # Regra: Domingos e Feriados vão para 100%, Segunda a Sexta (e Sábado) vão para 50%
                 if "Domingo" in tipo_str or "Feriado" in tipo_str:
                     total_he_100_calc += qtd_convertida
                 else:
                     total_he_50_calc += qtd_convertida
 
             str_lit.markdown("---")
+            str_lit.markdown("#### 📊 Prévia dos Totais Calculados:")
             c_res1, c_res2 = str_lit.columns(2)
             c_res1.metric("Total Horas Extras 50% (Seg a Sex / Sáb)", f"{total_he_50_calc:.2f} h")
             c_res2.metric("Total Horas Extras 100% (Domingos e Feriados)", f"{total_he_100_calc:.2f} h")
@@ -1524,7 +1525,6 @@ elif menu == "⏱️ Folha de Ponto":
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
                 
-                # Salva na tabela folha_ponto
                 c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
                 c.execute(
                     """
@@ -1534,7 +1534,6 @@ elif menu == "⏱️ Folha de Ponto":
                     (matricula_atual, mes_ano_str, total_he_50_calc, total_he_100_calc, json_dados),
                 )
 
-                # Atualiza também os campos he_50 e he_100 na tabela colaboradores
                 c.execute(
                     """
                     UPDATE colaboradores 
