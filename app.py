@@ -154,6 +154,18 @@ def init_db():
             dados_json TEXT
         )
     """)
+
+    # Tabela para armazenar o arquivo da última importação por filial
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS importacoes_arquivos (
+            filial_id INTEGER PRIMARY KEY,
+            nome_arquivo TEXT,
+            data_importacao DATETIME,
+            arquivo_blob BLOB,
+            FOREIGN KEY (filial_id) REFERENCES filiais (id)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -339,7 +351,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL (LOGO REMOVIDO DA SIDEBAR)
+# MENU PRINCIPAL
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -489,10 +501,10 @@ elif menu == "🏢 Cadastro de Filiais":
 # MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
 # ---------------------------------------------------------
 elif menu == "📥 Importar Colaboradores por Filial":
-    str_lit.title("📥 Importação Sincronizada e Persistente por Filial")
+    str_lit.title("📥 Importação Sincronizada e Arquivamento de Planilhas")
     str_lit.info(
-        "💡 **Persistência Ativa:** As importações são salvas instantaneamente no banco de dados. "
-        "Matrículas existentes são atualizadas e alocadas na nova filial sem duplicidade, ficando gravadas permanentemente."
+        "💡 **Recurso de Arquivamento:** Além de atualizar os colaboradores em tempo real, o sistema "
+        "armazena a última planilha importada para cada filial, permitindo o download dela a qualquer momento."
     )
 
     f_map_atual, _ = get_filiais_dict()
@@ -504,25 +516,54 @@ elif menu == "📥 Importar Colaboradores por Filial":
             "Selecione a Filial de Destino da Importação:",
             options=list(f_map_atual.keys()),
         )
+        
+        filial_id_atual = f_map_atual[filial_imp]
+
+        # Verifica se já existe uma planilha arquivada para esta filial
+        conn = sqlite3.connect(DB_FILE)
+        try:
+            df_arq_salvo = pd.read_sql_query(
+                "SELECT nome_arquivo, data_importacao, arquivo_blob FROM importacoes_arquivos WHERE filial_id = ?",
+                conn, params=(filial_id_atual,)
+            )
+        except Exception:
+            df_arq_salvo = pd.DataFrame()
+        conn.close()
+
+        if not df_arq_salvo.empty:
+            row_arq = df_arq_salvo.iloc[0]
+            str_lit.success(f"📂 **Última planilha arquivada para esta filial:** `{row_arq['nome_arquivo']}` (Importada em: {row_arq['data_importacao']})")
+            str_lit.download_button(
+                label=f"📥 Baixar Planilha Atual Arquivada ({row_arq['nome_arquivo']})",
+                data=row_arq["arquivo_blob"],
+                file_name=row_arq["nome_arquivo"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_arq_filial_{filial_id_atual}"
+            )
+            str_lit.markdown("---")
+
         arquivo_upload = str_lit.file_uploader(
-            "Envie a planilha (Excel .xlsx, .xls, .xlsm ou CSV):",
+            "Envie uma nova planilha para atualizar (Excel .xlsx, .xls, .xlsm ou CSV):",
             type=["xlsx", "xls", "xlsm", "csv"],
         )
 
         if arquivo_upload is not None:
             try:
-                nome_arq = arquivo_upload.name.lower()
-                if nome_arq.endswith(".csv"):
-                    df_imp = pd.read_csv(arquivo_upload)
+                nome_arq = arquivo_upload.name
+                bytes_arquivo = arquivo_upload.getvalue()
+                
+                nome_arq_lower = nome_arq.lower()
+                if nome_arq_lower.endswith(".csv"):
+                    df_imp = pd.read_csv(io.BytesIO(bytes_arquivo))
                 else:
-                    df_imp = pd.read_excel(arquivo_upload, engine="openpyxl")
+                    df_imp = pd.read_excel(io.BytesIO(bytes_arquivo), engine="openpyxl")
 
                 df_imp.columns = [str(col).strip().lower() for col in df_imp.columns]
 
                 str_lit.write(f"Pré-visualização dos dados importados ({len(df_imp)} registros encontrados):")
                 str_lit.dataframe(df_imp.head(), use_container_width=True)
 
-                if str_lit.button("🚀 Processar e Salvar Permanentemente"):
+                if str_lit.button("🚀 Processar, Arquivar Planilha e Salvar Permanentemente"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     
@@ -579,11 +620,17 @@ elif menu == "📥 Importar Colaboradores por Filial":
                                 )
                                 inseridos += 1
 
+                    # Salva ou substitui o arquivo da última importação da filial
+                    c.execute("""
+                        INSERT OR REPLACE INTO importacoes_arquivos (filial_id, nome_arquivo, data_importacao, arquivo_blob)
+                        VALUES (?, ?, ?, ?)
+                    """, (filial_id_destino, nome_arq, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), sqlite3.Binary(bytes_arquivo)))
+
                     conn.commit()
                     conn.close()
                     
                     str_lit.success(
-                        f"Importação salva com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados/Alocados: {atualizados}."
+                        f"Importação realizada e planilha arquivada com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados/Alocados: {atualizados}."
                     )
                     str_lit.rerun()
             except Exception as e:
