@@ -493,14 +493,13 @@ elif menu == "🏢 Cadastro de Filiais":
         str_lit.info("Nenhuma filial cadastrada.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (CORRIGIDO E BLINDADO)
+# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (SINCRONIZAÇÃO TOTAL)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Colaboradores por Filial":
-    str_lit.title("📥 Importação Inteligente de Colaboradores em Lote")
+    str_lit.title("📥 Importação Sincronizada de Colaboradores em Lote")
     str_lit.info(
-        "💡 **Regra de Importação Corrigida:** Colaboradores da planilha serão rigorosamente "
-        "vinculados à filial selecionada abaixo. Se a matrícula já existir, os dados serão atualizados "
-        "e alocados na nova filial; se for nova, será cadastrada imediatamente."
+        "💡 **Sincronização Ativa:** A importação abaixo atualiza instantaneamente todos os módulos do sistema. "
+        "Matrículas existentes terão seus dados atualizados e serão alocadas na filial escolhida sem duplicidade."
     )
 
     if not filiais_nome_para_id:
@@ -526,13 +525,16 @@ elif menu == "📥 Importar Colaboradores por Filial":
                 str_lit.write(f"Pré-visualização dos dados importados ({len(df_imp)} registros encontrados):")
                 str_lit.dataframe(df_imp.head(), use_container_width=True)
 
-                if str_lit.button("🚀 Processar, Atualizar Filial e Importar sem Duplicidade"):
+                if str_lit.button("🚀 Processar, Atualizar Todos os Módulos e Importar"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     
                     inseridos = 0
                     atualizados = 0
-                    filial_id_destino = filiais_nome_para_id[filial_imp]
+                    
+                    # Recarrega o dicionário atualizado de filiais direto do banco
+                    f_dict_atual, _ = get_filiais_dict()
+                    filial_id_destino = f_dict_atual.get(filial_imp)
 
                     for _, r in df_imp.iterrows():
                         mat = str(r.get("Matrícula", r.get("matricula", ""))).strip()
@@ -543,25 +545,22 @@ elif menu == "📥 Importar Colaboradores por Filial":
                             rg_val = str(r.get("RG", r.get("rg", ""))).strip()
                             cargo_val = str(r.get("Cargo", r.get("funcao", ""))).strip()
                             
-                            # Verifica se a matrícula já existe no banco
                             c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
                             existe = c.fetchone()
                             
                             if existe:
-                                # Força atualização garantindo a transferência e atualização para a filial selecionada
                                 c.execute(
                                     """
                                     UPDATE colaboradores 
                                     SET nome = ?, cpf = ?, rg = ?, funcao = ?, filial_id = ?, cnpj_empresa = ?, 
                                         status_colaborador = 'Ativo', tipo_movimentacao = 'Entrada', 
-                                        subtipo_movimentacao = 'Transferência/Alocação', data_movimentacao = ?
+                                        subtipo_movimentacao = 'Atualização/Alocação', data_movimentacao = ?
                                     WHERE matricula = ?
                                 """,
                                     (nome, cpf_val, rg_val, cargo_val, filial_id_destino, CNPJ_PADRAO, str(date.today()), mat)
                                 )
                                 atualizados += 1
                             else:
-                                # Insere novo colaborador vinculado diretamente à filial escolhida
                                 c.execute(
                                     """
                                     INSERT INTO colaboradores (
@@ -586,9 +585,11 @@ elif menu == "📥 Importar Colaboradores por Filial":
 
                     conn.commit()
                     conn.close()
+                    
                     str_lit.success(
-                        f"Importação concluída com sucesso! 🟢 Novos cadastrados na filial: {inseridos} | 🔄 Atualizados/Alocados para a filial: {atualizados}."
+                        f"Importação sincronizada com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados/Alocados: {atualizados}. Todos os módulos foram atualizados."
                     )
+                    str_lit.rerun()
             except Exception as e:
                 str_lit.error(f"Erro ao processar arquivo: {e}")
 
