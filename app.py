@@ -115,6 +115,8 @@ def init_db():
         ("mobilidade", "REAL DEFAULT 0"),
         ("alimentacao", "REAL DEFAULT 0"),
         ("tipo_usuario_va", "TEXT DEFAULT 'Já Usuário'"),
+        ("he_50", "REAL DEFAULT 0"),
+        ("he_100", "REAL DEFAULT 0"),
     ]
     for col, def_sql in novas_colunas:
         try:
@@ -136,7 +138,6 @@ def init_db():
         )
     """)
 
-    # Adiciona coluna filial_id no histórico caso a tabela já exista sem ela
     try:
         c.execute("ALTER TABLE historico_colaboradores ADD COLUMN filial_id INTEGER")
     except Exception:
@@ -210,7 +211,6 @@ def registrar_historico(matricula, tipo, antigo, novo):
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
         
-        # Busca a filial atual do colaborador para vincular ao histórico
         c.execute("SELECT filial_id FROM colaboradores WHERE matricula = ?", (matricula,))
         res = c.fetchone()
         filial_id_colab = res[0] if res and res[0] is not None else None
@@ -1484,7 +1484,7 @@ elif menu == "⏱️ Folha de Ponto":
 
             str_lit.markdown(f"### 📋 Lançamento Diário de Horas Extras - {mes_ano_str}")
             str_lit.write("Preencha a quantidade de horas em cada dia. Use vírgula, ponto ou dois-pontos (ex: `1,5` ou `01:30`).")
-            str_lit.write("ℹ️ **Regra:** Segunda a Sábado (úteis) somam em **50%**. Domingos e Feriados Nacionais somam em **100%**.")
+            str_lit.write("ℹ️ **Regra:** Segunda a Sexta-feira (e Sábados) somam em **50%**. Domingos e Feriados Nacionais somam em **100%**.")
 
             df_edit_ponto = str_lit.data_editor(
                 df_dias_tabela,
@@ -1507,6 +1507,7 @@ elif menu == "⏱️ Folha de Ponto":
                 qtd_convertida = converter_hora_flexivel(row["Horas"])
                 dicionario_salvar[dia_str] = row["Horas"]
 
+                # Regra: Domingos e Feriados vão para 100%, Segunda a Sexta (e Sábado) vão para 50%
                 if "Domingo" in tipo_str or "Feriado" in tipo_str:
                     total_he_100_calc += qtd_convertida
                 else:
@@ -1514,7 +1515,7 @@ elif menu == "⏱️ Folha de Ponto":
 
             str_lit.markdown("---")
             c_res1, c_res2 = str_lit.columns(2)
-            c_res1.metric("Total Horas Extras 50% (Seg a Sáb úteis)", f"{total_he_50_calc:.2f} h")
+            c_res1.metric("Total Horas Extras 50% (Seg a Sex / Sáb)", f"{total_he_50_calc:.2f} h")
             c_res2.metric("Total Horas Extras 100% (Domingos e Feriados)", f"{total_he_100_calc:.2f} h")
             str_lit.markdown("---")
 
@@ -1523,6 +1524,7 @@ elif menu == "⏱️ Folha de Ponto":
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
                 
+                # Salva na tabela folha_ponto
                 c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
                 c.execute(
                     """
@@ -1531,9 +1533,20 @@ elif menu == "⏱️ Folha de Ponto":
                 """,
                     (matricula_atual, mes_ano_str, total_he_50_calc, total_he_100_calc, json_dados),
                 )
+
+                # Atualiza também os campos he_50 e he_100 na tabela colaboradores
+                c.execute(
+                    """
+                    UPDATE colaboradores 
+                    SET he_50 = ?, he_100 = ?
+                    WHERE matricula = ?
+                """,
+                    (total_he_50_calc, total_he_100_calc, matricula_atual)
+                )
+
                 conn.commit()
                 conn.close()
-                str_lit.success(f"Folha de ponto de {mes_ano_str} salva com sucesso no banco de dados!")
+                str_lit.success(f"Folha de ponto de {mes_ano_str} e os saldos de HE do colaborador salvos com sucesso no banco de dados!")
 
 # ---------------------------------------------------------
 # MÓDULO 10: EXPORTAR DADOS
