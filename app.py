@@ -494,7 +494,7 @@ elif menu == "🏢 Cadastro de Filiais":
         str_lit.info("Nenhuma filial cadastrada.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (Sem Duplicidade / Atualização Automática)
+# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
 # ---------------------------------------------------------
 elif menu == "📥 Importar Colaboradores por Filial":
     str_lit.title("📥 Importação Inteligente de Colaboradores em Lote")
@@ -529,7 +529,6 @@ elif menu == "📥 Importar Colaboradores por Filial":
                     
                     inseridos = 0
                     atualizados = 0
-                    
                     filial_id_destino = filiais_nome_para_id[filial_imp]
 
                     for _, r in df_imp.iterrows():
@@ -541,12 +540,10 @@ elif menu == "📥 Importar Colaboradores por Filial":
                             rg_val = str(r.get("RG", r.get("rg", ""))).strip()
                             cargo_val = str(r.get("Cargo", r.get("funcao", ""))).strip()
                             
-                            # Verifica se a matrícula já existe no banco
                             c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
                             existe = c.fetchone()
                             
                             if existe:
-                                # Atualiza dados do colaborador existente
                                 c.execute(
                                     """
                                     UPDATE colaboradores 
@@ -557,7 +554,6 @@ elif menu == "📥 Importar Colaboradores por Filial":
                                 )
                                 atualizados += 1
                             else:
-                                # Insere novo colaborador
                                 c.execute(
                                     """
                                     INSERT INTO colaboradores (
@@ -589,10 +585,10 @@ elif menu == "📥 Importar Colaboradores por Filial":
                 str_lit.error(f"Erro ao processar arquivo: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 4: FILIAIS
+# MÓDULO 4: FILIAIS (Consulta Dinâmica e Atualizada)
 # ---------------------------------------------------------
 elif menu == "🏢 Filiais":
-    str_lit.title("🏢 Gestão e Filtragem por Filial")
+    str_lit.title("🏢 Gestão e Consulta por Filial")
     conn = sqlite3.connect(DB_FILE)
     try:
         df_filiais_list = pd.read_sql_query(
@@ -623,6 +619,7 @@ elif menu == "🏢 Filiais":
             f"### 📍 Unidade: {filial_selecionada_detalhe} (CNPJ: {cnpj_filial_atual})"
         )
 
+        # Consulta rigorosa atualizada com base exclusivamente na filial selecionada
         conn = sqlite3.connect(DB_FILE)
         try:
             df_colab_filial = pd.read_sql_query(
@@ -669,10 +666,10 @@ elif menu == "🏢 Filiais":
 
         str_lit.markdown("---")
         str_lit.subheader(
-            f"📋 Relação de Colaboradores - {filial_selecionada_detalhe}"
+            f"📋 Relação Atualizada de Colaboradores - {filial_selecionada_detalhe}"
         )
         if df_colab_filial.empty:
-            str_lit.info("Nenhum colaborador vinculado a esta filial.")
+            str_lit.info("Nenhum colaborador vinculado a esta filial no momento.")
         else:
             str_lit.dataframe(df_colab_filial, use_container_width=True)
             output_filial = io.BytesIO()
