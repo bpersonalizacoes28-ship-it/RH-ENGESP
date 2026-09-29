@@ -1339,7 +1339,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         str_lit.error(f"Erro ao carregar dados salvos: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 10: FOLHA DE PONTO (Com Feriados Automáticos e Dias da Semana na Coluna Tipo)
+# MÓDULO 10: FOLHA DE PONTO (Com Filtro de Filial, Feriados e Dias da Semana)
 # ---------------------------------------------------------
 elif menu == "⏱️ Folha de Ponto":
     str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
@@ -1363,148 +1363,154 @@ elif menu == "⏱️ Folha de Ponto":
     if df_ponto.empty:
         str_lit.info("Nenhum colaborador ativo cadastrado.")
     else:
-        colab_ponto = str_lit.selectbox(
-            "Selecione o Colaborador:",
-            options=df_ponto["Matrícula"]
-            + " - "
-            + df_ponto["Empregado"]
-            + " ("
-            + df_ponto["Filial"].fillna("Nenhuma")
-            + ")",
+        # Seleção de Filial para Filtrar Colaboradores
+        lista_filiais_ponto = sorted(df_ponto["Filial"].dropna().unique().tolist())
+        filial_escolhida_ponto = str_lit.selectbox(
+            "🏢 1. Selecione a Filial / Obra:", options=lista_filiais_ponto
         )
-        matricula_atual = colab_ponto.split(" - ")[0]
 
-        c_mes_p, c_ano_p = str_lit.columns(2)
-        meses_lista = [
-            "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-            "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-        ]
-        mes_escolhido = c_mes_p.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1)
-        ano_escolhido = c_ano_p.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year)
-        
-        mes_num = meses_lista.index(mes_escolhido) + 1
-        mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
+        df_ponto_filtrado = df_ponto[df_ponto["Filial"] == filial_escolhida_ponto]
 
-        # Descobre quantidade de dias do mês selecionado
-        if mes_num == 12:
-            proximo_mes = datetime(ano_escolhido + 1, 1, 1)
+        if df_ponto_filtrado.empty:
+            str_lit.warning("Nenhum colaborador ativo encontrado nesta filial.")
         else:
-            proximo_mes = datetime(ano_escolhido, mes_num + 1, 1)
-        ultimo_dia = (proximo_mes - timedelta(days=1)).day
-
-        nomes_dias_semana = {
-            0: "Segunda-feira",
-            1: "Terça-feira",
-            2: "Quarta-feira",
-            3: "Quinta-feira",
-            4: "Sexta-feira",
-            5: "Sábado",
-            6: "Domingo"
-        }
-
-        # Busca conjunto de feriados nacionais para o ano escolhido
-        feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
-
-        # Carrega dados salvos anteriormente se existirem
-        conn = sqlite3.connect(DB_FILE)
-        try:
-            df_salvo_ponto = pd.read_sql_query(
-                "SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?",
-                conn, params=(matricula_atual, mes_ano_str)
+            colab_ponto = str_lit.selectbox(
+                "👥 2. Selecione o Colaborador:",
+                options=df_ponto_filtrado["Matrícula"]
+                + " - "
+                + df_ponto_filtrado["Empregado"],
             )
-        except Exception:
-            df_salvo_ponto = pd.DataFrame()
-        conn.close()
+            matricula_atual = colab_ponto.split(" - ")[0]
 
-        dados_anteriores = {}
-        if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"]:
-            try:
-                dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"])
-            except Exception:
-                pass
+            c_mes_p, c_ano_p = str_lit.columns(2)
+            meses_lista = [
+                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+            ]
+            mes_escolhido = c_mes_p.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1)
+            ano_escolhido = c_ano_p.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year)
+            
+            mes_num = meses_lista.index(mes_escolhido) + 1
+            mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
 
-        # Monta estrutura dos dias do mês
-        lista_linhas_dias = []
-        for dia in range(1, ultimo_dia + 1):
-            data_atual = date(int(ano_escolhido), mes_num, dia)
-            dia_semana_num = data_atual.weekday()
-            nome_dia_sem = nomes_dias_semana[dia_semana_num]
-            
-            # Identifica se é feriado nacional ou domingo
-            eh_feriado = data_atual in feriados_do_ano
-            
-            if eh_feriado:
-                tipo_dia_str = f"Feriado ({nome_dia_sem})"
+            # Descobre quantidade de dias do mês selecionado
+            if mes_num == 12:
+                proximo_mes = datetime(ano_escolhido + 1, 1, 1)
             else:
-                tipo_dia_str = nome_dia_sem
+                proximo_mes = datetime(ano_escolhido, mes_num + 1, 1)
+            ultimo_dia = (proximo_mes - timedelta(days=1)).day
 
-            coluna_nome = f"Dia {dia:02d} ({data_atual.strftime('%d/%m')})"
-            valor_salvo = dados_anteriores.get(coluna_nome, "0")
-            
-            lista_linhas_dias.append({
-                "Dia": coluna_nome,
-                "Tipo": tipo_dia_str,
-                "Horas": str(valor_salvo)
-            })
+            nomes_dias_semana = {
+                0: "Segunda-feira",
+                1: "Terça-feira",
+                2: "Quarta-feira",
+                3: "Quinta-feira",
+                4: "Sexta-feira",
+                5: "Sábado",
+                6: "Domingo"
+            }
 
-        df_dias_tabela = pd.DataFrame(lista_linhas_dias)
+            # Busca conjunto de feriados nacionais para o ano escolhido
+            feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
 
-        str_lit.markdown(f"### 📋 Lançamento Diário de Horas Extras - {mes_ano_str}")
-        str_lit.write("Preencha a quantidade de horas em cada dia. Use vírgula, ponto ou dois-pontos (ex: `1,5` ou `01:30`).")
-        str_lit.write("ℹ️ **Regra:** Segunda a Sábado (úteis) somam em **50%**. Domingos e Feriados Nacionais somam em **100%**.")
-
-        df_edit_ponto = str_lit.data_editor(
-            df_dias_tabela,
-            column_config={
-                "Dia": str_lit.column_config.TextColumn("Data / Dia", disabled=True),
-                "Tipo": str_lit.column_config.TextColumn("Tipo (Dia da Semana / Feriado)", disabled=True),
-                "Horas": str_lit.column_config.TextColumn("Qtd Horas Feitas", required=True)
-            },
-            hide_index=True,
-            use_container_width=True
-        )
-
-        # Cálculo automático: Seg-Sáb útil = 50% | Domingo ou Feriado = 100%
-        total_he_50_calc = 0.0
-        total_he_100_calc = 0.0
-        dicionario_salvar = {}
-
-        for _, row in df_edit_ponto.iterrows():
-            dia_str = row["Dia"]
-            tipo_str = row["Tipo"]
-            qtd_convertida = converter_hora_flexivel(row["Horas"])
-            dicionario_salvar[dia_str] = row["Horas"]
-
-            # Se for Domingo ou Feriado, vai para 100%. Caso contrário (Seg a Sáb), vai para 50%.
-            if "Domingo" in tipo_str or "Feriado" in tipo_str:
-                total_he_100_calc += qtd_convertida
-            else:
-                total_he_50_calc += qtd_convertida
-
-        str_lit.markdown("---")
-        c_res1, c_res2 = str_lit.columns(2)
-        c_res1.metric("Total Horas Extras 50% (Seg a Sáb úteis)", f"{total_he_50_calc:.2f} h")
-        c_res2.metric("Total Horas Extras 100% (Domingos e Feriados)", f"{total_he_100_calc:.2f} h")
-        str_lit.markdown("---")
-
-        if str_lit.button("💾 Salvar Folha de Ponto Completa", type="primary"):
-            json_dados = json.dumps(dicionario_salvar)
+            # Carrega dados salvos anteriormente se existirem
             conn = sqlite3.connect(DB_FILE)
-            c = conn.cursor()
-            
-            # Remove registro anterior do mesmo mês/colaborador para atualizar
-            c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
-            
-            c.execute(
-                """
-                INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json)
-                VALUES (?, ?, ?, ?, ?)
-            """,
-                (matricula_atual, mes_ano_str, total_he_50_calc, total_he_100_calc, json_dados),
-            )
-            conn.commit()
+            try:
+                df_salvo_ponto = pd.read_sql_query(
+                    "SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?",
+                    conn, params=(matricula_atual, mes_ano_str)
+                )
+            except Exception:
+                df_salvo_ponto = pd.DataFrame()
             conn.close()
-            str_lit.success(f"Folha de ponto de {mes_ano_str} salva com sucesso!")
+
+            dados_anteriores = {}
+            if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"]:
+                try:
+                    dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"])
+                except Exception:
+                    pass
+
+            # Monta estrutura dos dias do mês
+            lista_linhas_dias = []
+            for dia in range(1, ultimo_dia + 1):
+                data_atual = date(int(ano_escolhido), mes_num, dia)
+                dia_semana_num = data_atual.weekday()
+                nome_dia_sem = nomes_dias_semana[dia_semana_num]
+                
+                # Identifica se é feriado nacional ou domingo
+                eh_feriado = data_atual in feriados_do_ano
+                
+                if eh_feriado:
+                    tipo_dia_str = f"Feriado ({nome_dia_sem})"
+                else:
+                    tipo_dia_str = nome_dia_sem
+
+                coluna_nome = f"Dia {dia:02d} ({data_atual.strftime('%d/%m')})"
+                valor_salvo = dados_anteriores.get(coluna_nome, "0")
+                
+                lista_linhas_dias.append({
+                    "Dia": coluna_nome,
+                    "Tipo": tipo_dia_str,
+                    "Horas": str(valor_salvo)
+                })
+
+            df_dias_tabela = pd.DataFrame(lista_linhas_dias)
+
+            str_lit.markdown(f"### 📋 Lançamento Diário de Horas Extras - {mes_ano_str}")
+            str_lit.write("Preencha a quantidade de horas em cada dia. Use vírgula, ponto ou dois-pontos (ex: `1,5` ou `01:30`).")
+            str_lit.write("ℹ️ **Regra:** Segunda a Sábado (úteis) somam em **50%**. Domingos e Feriados Nacionais somam em **100%**.")
+
+            df_edit_ponto = str_lit.data_editor(
+                df_dias_tabela,
+                column_config={
+                    "Dia": str_lit.column_config.TextColumn("Data / Dia", disabled=True),
+                    "Tipo": str_lit.column_config.TextColumn("Tipo (Dia da Semana / Feriado)", disabled=True),
+                    "Horas": str_lit.column_config.TextColumn("Qtd Horas Feitas", required=True)
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+
+            # Cálculo automático: Seg-Sáb útil = 50% | Domingo ou Feriado = 100%
+            total_he_50_calc = 0.0
+            total_he_100_calc = 0.0
+            dicionario_salvar = {}
+
+            for _, row in df_edit_ponto.iterrows():
+                dia_str = row["Dia"]
+                tipo_str = row["Tipo"]
+                qtd_convertida = converter_hora_flexivel(row["Horas"])
+                dicionario_salvar[dia_str] = row["Horas"]
+
+                if "Domingo" in tipo_str or "Feriado" in tipo_str:
+                    total_he_100_calc += qtd_convertida
+                else:
+                    total_he_50_calc += qtd_convertida
+
+            str_lit.markdown("---")
+            c_res1, c_res2 = str_lit.columns(2)
+            c_res1.metric("Total Horas Extras 50% (Seg a Sáb úteis)", f"{total_he_50_calc:.2f} h")
+            c_res2.metric("Total Horas Extras 100% (Domingos e Feriados)", f"{total_he_100_calc:.2f} h")
+            str_lit.markdown("---")
+
+            if str_lit.button("💾 Salvar Folha de Ponto Completa", type="primary"):
+                json_dados = json.dumps(dicionario_salvar)
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                
+                c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
+                
+                c.execute(
+                    """
+                    INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+                    (matricula_atual, mes_ano_str, total_he_50_calc, total_he_100_calc, json_dados),
+                )
+                conn.commit()
+                conn.close()
+                str_lit.success(f"Folha de ponto de {mes_ano_str} salva com sucesso!")
 
 # ---------------------------------------------------------
 # MÓDULO 11: EXPORTAR DADOS
