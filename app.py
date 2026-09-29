@@ -155,7 +155,6 @@ def init_db():
         )
     """)
 
-    # Tabela para armazenar o arquivo da última importação por filial
     c.execute("""
         CREATE TABLE IF NOT EXISTS importacoes_arquivos (
             filial_id INTEGER PRIMARY KEY,
@@ -519,7 +518,6 @@ elif menu == "📥 Importar Colaboradores por Filial":
         
         filial_id_atual = f_map_atual[filial_imp]
 
-        # Verifica se já existe uma planilha arquivada para esta filial
         conn = sqlite3.connect(DB_FILE)
         try:
             df_arq_salvo = pd.read_sql_query(
@@ -620,7 +618,6 @@ elif menu == "📥 Importar Colaboradores por Filial":
                                 )
                                 inseridos += 1
 
-                    # Salva ou substitui o arquivo da última importação da filial
                     c.execute("""
                         INSERT OR REPLACE INTO importacoes_arquivos (filial_id, nome_arquivo, data_importacao, arquivo_blob)
                         VALUES (?, ?, ?, ?)
@@ -739,10 +736,11 @@ elif menu == "🔄 Transferência entre Filiais":
                         str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 5: COLABORADORES
+# MÓDULO 5: COLABORADORES (Com Abas Ativos/Demitidos e Seleção em Massa)
 # ---------------------------------------------------------
 elif menu == "👥 Colaboradores":
-    str_lit.title("👥 Consulta de Colaboradores por Filial")
+    str_lit.title("👥 Gestão de Colaboradores por Filial (Ativos e Demitidos)")
+    
     conn = sqlite3.connect(DB_FILE)
     try:
         df_filiais_colab = pd.read_sql_query(
@@ -757,96 +755,156 @@ elif menu == "👥 Colaboradores":
     else:
         lista_nomes_f = ["Todas as Filiais"] + df_filiais_colab["nome"].tolist()
         filial_escolhida_colab_mod = str_lit.selectbox(
-            "🏢 Selecione a Filial para filtrar os colaboradores:", lista_nomes_f
+            "🏢 Selecione a Filial:", lista_nomes_f
         )
 
-        conn = sqlite3.connect(DB_FILE)
-        try:
-            if filial_escolhida_colab_mod == "Todas as Filiais":
-                query_c = """
-                    SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                           c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-                           c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-                           f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-                           c.status_colaborador as "Status", c.observacoes as "Observações"
-                    FROM colaboradores c
-                    LEFT JOIN filiais f ON c.filial_id = f.id
-                    ORDER BY c.nome
-                """
-                df_c_res = pd.read_sql_query(query_c, conn)
+        aba_ativos, aba_demitidos = str_lit.tabs(["🟢 Colaboradores Ativos", "🔴 Colaboradores Demitidos"])
+
+        # ================= ABAS: ATIVOS =================
+        with aba_ativos:
+            conn = sqlite3.connect(DB_FILE)
+            try:
+                if filial_escolhida_colab_mod == "Todas as Filiais":
+                    query_c = """
+                        SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                               c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                               c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                               f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                               c.status_colaborador as "Status", c.observacoes as "Observações"
+                        FROM colaboradores c
+                        LEFT JOIN filiais f ON c.filial_id = f.id
+                        WHERE c.status_colaborador = 'Ativo'
+                        ORDER BY c.nome
+                    """
+                    df_c_res = pd.read_sql_query(query_c, conn)
+                else:
+                    f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
+                    query_c = """
+                        SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                               c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                               c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                               f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                               c.status_colaborador as "Status", c.observacoes as "Observações"
+                        FROM colaboradores c
+                        LEFT JOIN filiais f ON c.filial_id = f.id
+                        WHERE c.filial_id = ? AND c.status_colaborador = 'Ativo'
+                        ORDER BY c.nome
+                    """
+                    df_c_res = pd.read_sql_query(query_c, conn, params=(f_id_sel,))
+            except Exception:
+                df_c_res = pd.DataFrame()
+            conn.close()
+
+            if not df_c_res.empty:
+                df_c_res["CPF"] = df_c_res["CPF"].apply(formatar_cpf)
+                df_c_res["Data Admissão"] = df_c_res["Data Admissão"].apply(formatar_data_br)
+                df_c_res["Data Movimentação"] = df_c_res["Data Movimentação"].apply(formatar_data_br)
+
+            str_lit.metric("Total Ativos Listados", len(df_c_res))
+            str_lit.markdown("---")
+
+            if df_c_res.empty:
+                str_lit.info("Nenhum colaborador ativo encontrado para esta seleção.")
             else:
-                f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
-                query_c = """
-                    SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                           c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-                           c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-                           f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-                           c.status_colaborador as "Status", c.observacoes as "Observações"
-                    FROM colaboradores c
-                    LEFT JOIN filiais f ON c.filial_id = f.id
-                    WHERE c.filial_id = ?
-                    ORDER BY c.nome
-                """
-                df_c_res = pd.read_sql_query(query_c, conn, params=(f_id_sel,))
-        except Exception:
-            df_c_res = pd.DataFrame()
-        conn.close()
+                df_c_res.insert(0, "Selecionar", False)
 
-        if not df_c_res.empty:
-            df_c_res["CPF"] = df_c_res["CPF"].apply(formatar_cpf)
-            df_c_res["Data Admissão"] = df_c_res["Data Admissão"].apply(
-                formatar_data_br
-            )
-            df_c_res["Data Movimentação"] = df_c_res[
-                "Data Movimentação"
-            ].apply(formatar_data_br)
+                col_sel_todos, _ = str_lit.columns([2, 5])
+                selecionar_todos = col_sel_todos.checkbox("✅ Selecionar Todos os Colaboradores Ativos", key="chk_sel_todos_ativos")
 
-        str_lit.metric("Colaboradores Listados", len(df_c_res))
-        str_lit.markdown("---")
+                if selecionar_todos:
+                    df_c_res["Selecionar"] = True
 
-        if df_c_res.empty:
-            str_lit.info("Nenhum colaborador encontrado para esta seleção.")
-        else:
-            df_c_res.insert(0, "Selecionar", False)
-
-            str_lit.write(
-                "Marque a caixa 'Selecionar' nos registros que deseja remover da lista e clique em deletar:"
-            )
-            df_editavel = str_lit.data_editor(
-                df_c_res,
-                column_config={
-                    "Selecionar": str_lit.column_config.CheckboxColumn(
-                        "Selecionar", required=True
-                    )
-                },
-                hide_index=True,
-                use_container_width=True,
-            )
-
-            matriculas_para_excluir = df_editavel[
-                df_editavel["Selecionar"] == True
-            ]["Matrícula"].tolist()
-
-            if matriculas_para_excluir:
-                str_lit.warning(
-                    f"⚠️ Você selecionou {len(matriculas_para_excluir)} colaborador(es) para exclusão."
+                str_lit.write("Marque individualmente ou use a opção acima para selecionar todos e efetivar a demissão em lote:")
+                df_editavel = str_lit.data_editor(
+                    df_c_res,
+                    column_config={
+                        "Selecionar": str_lit.column_config.CheckboxColumn("Selecionar", required=True)
+                    },
+                    hide_index=True,
+                    use_container_width=True,
                 )
-                if str_lit.button(
-                    "🗑️ Deletar Colaboradores Selecionados Permanentemente", type="primary"
-                ):
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    for mat_exc in matriculas_para_excluir:
-                        c.execute(
-                            "DELETE FROM colaboradores WHERE matricula = ?",
-                            (mat_exc,),
-                        )
-                    conn.commit()
-                    conn.close()
-                    str_lit.success(
-                        "Colaboradores selecionados excluídos com sucesso do banco de dados!"
+
+                matriculas_para_demitir = df_editavel[
+                    df_editavel["Selecionar"] == True
+                ]["Matrícula"].tolist()
+
+                if matriculas_para_demitir:
+                    str_lit.warning(f"⚠️ Você selecionou **{len(matriculas_para_demitir)}** colaborador(es) para colocar como **Demitido**.")
+                    
+                    data_demissao_lote = str_lit.date_input(
+                        "Data da Demissão:",
+                        value=date.today(),
+                        min_value=MIN_DATE,
+                        max_value=MAX_DATE,
+                        format="DD/MM/YYYY",
+                        key="dt_demissao_lote_input"
                     )
-                    str_lit.rerun()
+
+                    if str_lit.button("🔴 Efetivar Demissão dos Selecionados", type="primary"):
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        for mat_dem in matriculas_para_demitir:
+                            c.execute(
+                                """
+                                UPDATE colaboradores 
+                                SET status_colaborador = 'Demitido', data_demissao = ?, 
+                                    tipo_movimentacao = 'Saída', subtipo_movimentacao = 'Demissão', data_movimentacao = ?
+                                WHERE matricula = ?
+                            """,
+                                (str(data_demissao_lote), str(data_demissao_lote), mat_dem),
+                            )
+                        conn.commit()
+                        conn.close()
+
+                        for mat_dem in matriculas_para_demitir:
+                            registrar_historico(mat_dem, "Demissão em Lote", "Ativo", "Demitido")
+
+                        str_lit.success(f"{len(matriculas_para_demitir)} colaborador(es) marcado(s) como Demitido(s) e alocado(s) na aba de Demitidos!")
+                        str_lit.rerun()
+
+        # ================= ABAS: DEMITIDOS =================
+        with aba_demitidos:
+            conn = sqlite3.connect(DB_FILE)
+            try:
+                if filial_escolhida_colab_mod == "Todas as Filiais":
+                    query_dem = """
+                        SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                               f.nome as "Filial", c.cpf as "CPF", c.data_contratacao as "Data Admissão", 
+                               c.data_demissao as "Data Demissão", c.observacoes as "Observações"
+                        FROM colaboradores c
+                        LEFT JOIN filiais f ON c.filial_id = f.id
+                        WHERE c.status_colaborador = 'Demitido'
+                        ORDER BY c.nome
+                    """
+                    df_dem_res = pd.read_sql_query(query_dem, conn)
+                else:
+                    f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
+                    query_dem = """
+                        SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                               f.nome as "Filial", c.cpf as "CPF", c.data_contratacao as "Data Admissão", 
+                               c.data_demissao as "Data Demissão", c.observacoes as "Observações"
+                        FROM colaboradores c
+                        LEFT JOIN filiais f ON c.filial_id = f.id
+                        WHERE c.filial_id = ? AND c.status_colaborador = 'Demitido'
+                        ORDER BY c.nome
+                    """
+                    df_dem_res = pd.read_sql_query(query_dem, conn, params=(f_id_sel,))
+            except Exception:
+                df_dem_res = pd.DataFrame()
+            conn.close()
+
+            if not df_dem_res.empty:
+                df_dem_res["CPF"] = df_dem_res["CPF"].apply(formatar_cpf)
+                df_dem_res["Data Admissão"] = df_dem_res["Data Admissão"].apply(formatar_data_br)
+                df_dem_res["Data Demissão"] = df_dem_res["Data Demissão"].apply(formatar_data_br)
+
+            str_lit.metric("Total Demitidos Registrados", len(df_dem_res))
+            str_lit.markdown("---")
+
+            if df_dem_res.empty:
+                str_lit.info("Nenhum colaborador demitido encontrado para esta seleção.")
+            else:
+                str_lit.dataframe(df_dem_res, use_container_width=True)
 
 # ---------------------------------------------------------
 # MÓDULO 6: NOVO COLABORADOR / ADMISSÃO
