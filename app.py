@@ -51,7 +51,7 @@ DB_FILE = "gestao_empresa.db"
 
 
 # ---------------------------------------------------------
-# BANCO DE DADOS - INICIALIZAÇÃO E MIGRAÇÃO
+# BANCO DE DADOS - INICIALIZAÇÃO E MIGRAÇÃO ROBUSTA
 # ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -133,6 +133,7 @@ def init_db():
         )
     """)
 
+    # Garante a criação correta da tabela de histórico de pedidos VA para evitar OperationalError
     c.execute("""
         CREATE TABLE IF NOT EXISTS historico_pedidos_va (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
