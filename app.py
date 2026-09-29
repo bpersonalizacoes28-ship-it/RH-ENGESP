@@ -258,7 +258,6 @@ def formatar_data_br(valor):
 
 
 def converter_hora_flexivel(valor):
-    """Converte valores digitados com vírgula, ponto ou dois-pontos em horas decimais (float)."""
     if valor is None or pd.isna(valor):
         return 0.0
     val_str = str(valor).strip()
@@ -282,20 +281,17 @@ def converter_hora_flexivel(valor):
 
 
 def obter_feriados_nacionais(ano):
-    """Retorna um conjunto (set) com as datas de feriados nacionais fixos e móveis para o ano informado."""
     feriados = {
-        date(ano, 1, 1),   # Confraternização Universal
-        date(ano, 4, 21),  # Tiradentes
-        date(ano, 5, 1),   # Dia do Trabalho
-        date(ano, 9, 7),   # Independência do Brasil
-        date(ano, 10, 12), # Nossa Senhora Aparecida
-        date(ano, 11, 2),  # Finados
-        date(ano, 11, 15), # Proclamação da República
-        date(ano, 11, 20), # Consciência Negra
-        date(ano, 12, 25), # Natal
+        date(ano, 1, 1),   
+        date(ano, 4, 21),  
+        date(ano, 5, 1),   
+        date(ano, 9, 7),   
+        date(ano, 10, 12), 
+        date(ano, 11, 2),  
+        date(ano, 11, 15), 
+        date(ano, 11, 20), 
+        date(ano, 12, 25), 
     }
-    
-    # Cálculo aproximado da Páscoa (Algoritmo de Meeus/Jones/Butcher) para Corpus Christi e Sexta-feira Santa
     a = ano % 19
     b = ano // 100
     c = ano % 100
@@ -312,12 +308,8 @@ def obter_feriados_nacionais(ano):
     dia_pascoa = ((h + l - 7 * m + 114) % 31) + 1
     
     data_pascoa = date(ano, mes_pascoa, dia_pascoa)
-    sexta_santa = data_pascoa - timedelta(days=2)
-    corpus_christi = data_pascoa + timedelta(days=60)
-    
-    feriados.add(sexta_santa)
-    feriados.add(corpus_christi)
-    
+    feriados.add(data_pascoa - timedelta(days=2))
+    feriados.add(data_pascoa + timedelta(days=60))
     return feriados
 
 
@@ -502,10 +494,12 @@ elif menu == "🏢 Cadastro de Filiais":
         str_lit.info("Nenhuma filial cadastrada.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
+# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (Sem Duplicidade / Atualização Automática)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Colaboradores por Filial":
-    str_lit.title("📥 Importação de Colaboradores em Lote")
+    str_lit.title("📥 Importação Inteligente de Colaboradores em Lote")
+    str_lit.info("💡 **Regra de Importação:** Matrículas já cadastradas serão **atualizadas** automaticamente com os dados da planilha. Matrículas novas serão **adicionadas** sem duplicidade.")
+
     if not filiais_nome_para_id:
         str_lit.warning("Cadastre uma filial primeiro.")
     else:
@@ -526,45 +520,73 @@ elif menu == "📥 Importar Colaboradores por Filial":
                 else:
                     df_imp = pd.read_excel(arquivo_upload, engine="openpyxl")
 
-                str_lit.write("Pré-visualização dos dados importados:")
+                str_lit.write(f"Pré-visualização dos dados importados ({len(df_imp)} registros encontrados):")
                 str_lit.dataframe(df_imp.head(), use_container_width=True)
 
-                if str_lit.button("🚀 Processar e Importar para o Banco de Dados"):
+                if str_lit.button("🚀 Processar, Atualizar e Importar sem Duplicidade"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
-                    importados = 0
+                    
+                    inseridos = 0
+                    atualizados = 0
+                    
+                    filial_id_destino = filiais_nome_para_id[filial_imp]
+
                     for _, r in df_imp.iterrows():
-                        mat = str(
-                            r.get("Matrícula", r.get("matricula", ""))
-                        ).strip()
+                        mat = str(r.get("Matrícula", r.get("matricula", ""))).strip()
                         nome = str(r.get("Nome", r.get("nome", ""))).strip()
-                        if mat and nome:
-                            try:
+                        
+                        if mat and mat.lower() != "nan" and nome and nome.lower() != "nan":
+                            cpf_val = formatar_cpf(r.get("CPF", r.get("cpf", "")))
+                            rg_val = str(r.get("RG", r.get("rg", ""))).strip()
+                            cargo_val = str(r.get("Cargo", r.get("funcao", ""))).strip()
+                            
+                            # Verifica se a matrícula já existe no banco
+                            c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
+                            existe = c.fetchone()
+                            
+                            if existe:
+                                # Atualiza dados do colaborador existente
                                 c.execute(
                                     """
-                                    INSERT INTO colaboradores (matricula, nome, cpf, rg, funcao, cnpj_empresa, filial_id, status_colaborador, tipo_contratacao)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo', 'CLT')
+                                    UPDATE colaboradores 
+                                    SET nome = ?, cpf = ?, rg = ?, funcao = ?, filial_id = ?, cnpj_empresa = ?, status_colaborador = 'Ativo'
+                                    WHERE matricula = ?
+                                """,
+                                    (nome, cpf_val, rg_val, cargo_val, filial_id_destino, CNPJ_PADRAO, mat)
+                                )
+                                atualizados += 1
+                            else:
+                                # Insere novo colaborador
+                                c.execute(
+                                    """
+                                    INSERT INTO colaboradores (
+                                        matricula, nome, cpf, rg, funcao, cnpj_empresa, 
+                                        filial_id, status_colaborador, tipo_contratacao, 
+                                        tipo_movimentacao, subtipo_movimentacao, data_movimentacao
+                                    )
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo', 'CLT', 'Entrada', 'Admissão', ?)
                                 """,
                                     (
                                         mat,
                                         nome,
-                                        str(r.get("CPF", "")),
-                                        str(r.get("RG", "")),
-                                        str(r.get("Cargo", r.get("funcao", ""))),
+                                        cpf_val,
+                                        rg_val,
+                                        cargo_val,
                                         CNPJ_PADRAO,
-                                        filiais_nome_para_id[filial_imp],
+                                        filial_id_destino,
+                                        str(date.today()),
                                     ),
                                 )
-                                importados += 1
-                            except Exception:
-                                pass
+                                inseridos += 1
+
                     conn.commit()
                     conn.close()
                     str_lit.success(
-                        f"Importação concluída! {importados} registros salvos na filial {filial_imp}."
+                        f"Importação concluída com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados sem duplicidade: {atualizados}."
                     )
             except Exception as e:
-                str_lit.error(f"Erro ao ler o arquivo: {e}")
+                str_lit.error(f"Erro ao processar arquivo: {e}")
 
 # ---------------------------------------------------------
 # MÓDULO 4: FILIAIS
@@ -1339,7 +1361,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         str_lit.error(f"Erro ao carregar dados salvos: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 10: FOLHA DE PONTO (Com Filtro de Filial, Feriados e Dias da Semana)
+# MÓDULO 10: FOLHA DE PONTO
 # ---------------------------------------------------------
 elif menu == "⏱️ Folha de Ponto":
     str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
@@ -1363,7 +1385,6 @@ elif menu == "⏱️ Folha de Ponto":
     if df_ponto.empty:
         str_lit.info("Nenhum colaborador ativo cadastrado.")
     else:
-        # Seleção de Filial para Filtrar Colaboradores
         lista_filiais_ponto = sorted(df_ponto["Filial"].dropna().unique().tolist())
         filial_escolhida_ponto = str_lit.selectbox(
             "🏢 1. Selecione a Filial / Obra:", options=lista_filiais_ponto
@@ -1393,7 +1414,6 @@ elif menu == "⏱️ Folha de Ponto":
             mes_num = meses_lista.index(mes_escolhido) + 1
             mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
 
-            # Descobre quantidade de dias do mês selecionado
             if mes_num == 12:
                 proximo_mes = datetime(ano_escolhido + 1, 1, 1)
             else:
@@ -1401,19 +1421,12 @@ elif menu == "⏱️ Folha de Ponto":
             ultimo_dia = (proximo_mes - timedelta(days=1)).day
 
             nomes_dias_semana = {
-                0: "Segunda-feira",
-                1: "Terça-feira",
-                2: "Quarta-feira",
-                3: "Quinta-feira",
-                4: "Sexta-feira",
-                5: "Sábado",
-                6: "Domingo"
+                0: "Segunda-feira", 1: "Terça-feira", 2: "Quarta-feira",
+                3: "Quinta-feira", 4: "Sexta-feira", 5: "Sábado", 6: "Domingo"
             }
 
-            # Busca conjunto de feriados nacionais para o ano escolhido
             feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
 
-            # Carrega dados salvos anteriormente se existirem
             conn = sqlite3.connect(DB_FILE)
             try:
                 df_salvo_ponto = pd.read_sql_query(
@@ -1431,20 +1444,14 @@ elif menu == "⏱️ Folha de Ponto":
                 except Exception:
                     pass
 
-            # Monta estrutura dos dias do mês
             lista_linhas_dias = []
             for dia in range(1, ultimo_dia + 1):
                 data_atual = date(int(ano_escolhido), mes_num, dia)
                 dia_semana_num = data_atual.weekday()
                 nome_dia_sem = nomes_dias_semana[dia_semana_num]
                 
-                # Identifica se é feriado nacional ou domingo
                 eh_feriado = data_atual in feriados_do_ano
-                
-                if eh_feriado:
-                    tipo_dia_str = f"Feriado ({nome_dia_sem})"
-                else:
-                    tipo_dia_str = nome_dia_sem
+                tipo_dia_str = f"Feriado ({nome_dia_sem})" if eh_feriado else nome_dia_sem
 
                 coluna_nome = f"Dia {dia:02d} ({data_atual.strftime('%d/%m')})"
                 valor_salvo = dados_anteriores.get(coluna_nome, "0")
@@ -1472,7 +1479,6 @@ elif menu == "⏱️ Folha de Ponto":
                 use_container_width=True
             )
 
-            # Cálculo automático: Seg-Sáb útil = 50% | Domingo ou Feriado = 100%
             total_he_50_calc = 0.0
             total_he_100_calc = 0.0
             dicionario_salvar = {}
@@ -1500,7 +1506,6 @@ elif menu == "⏱️ Folha de Ponto":
                 c = conn.cursor()
                 
                 c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
-                
                 c.execute(
                     """
                     INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json)
