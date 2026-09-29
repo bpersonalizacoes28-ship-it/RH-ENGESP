@@ -132,10 +132,11 @@ def init_db():
             FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula)
         )
     """)
-  
-  # Recriar ou garantir estrutura correta da tabela de histórico de VA
+
+  # Garante a estrutura correta recriando a tabela de histórico de VA
+  c.execute("DROP TABLE IF EXISTS historico_pedidos_va")
   c.execute("""
-        CREATE TABLE IF NOT EXISTS historico_pedidos_va (
+        CREATE TABLE historico_pedidos_va (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             mes_ano TEXT,
             filial_nome TEXT,
@@ -436,7 +437,7 @@ elif menu == "🏢 Cadastro de Filiais":
     str_lit.info("Nenhuma filial cadastrada.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
+# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (Com suporte a XLSM, XLSX, XLS, CSV)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Colaboradores por Filial":
   str_lit.title("📥 Importação de Colaboradores em Lote")
@@ -448,15 +449,18 @@ elif menu == "📥 Importar Colaboradores por Filial":
         options=list(filiais_nome_para_id.keys()),
     )
     arquivo_upload = str_lit.file_uploader(
-        "Envie a planilha (Excel ou CSV):", type=["xlsx", "csv"]
+        "Envie a planilha (Excel .xlsx, .xls, .xlsm ou CSV):",
+        type=["xlsx", "xls", "xlsm", "csv"],
     )
 
     if arquivo_upload is not None:
       try:
-        if arquivo_upload.name.endswith(".csv"):
+        nome_arq = arquivo_upload.name.lower()
+        if nome_arq.endswith(".csv"):
           df_imp = pd.read_csv(arquivo_upload)
         else:
-          df_imp = pd.read_excel(arquivo_upload)
+          # openpyxl gerencia xlsx e xlsm perfeitamente
+          df_imp = pd.read_excel(arquivo_upload, engine="openpyxl")
 
         str_lit.write("Pré-visualização dos dados importados:")
         str_lit.dataframe(df_imp.head(), use_container_width=True)
