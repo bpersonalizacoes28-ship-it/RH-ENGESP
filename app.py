@@ -133,24 +133,6 @@ def init_db():
         )
     """)
 
-    c.execute("DROP TABLE IF EXISTS historico_pedidos_va")
-    c.execute("""
-        CREATE TABLE historico_pedidos_va (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mes_ano TEXT,
-            filial_nome TEXT,
-            matricula TEXT,
-            cnpj_empresa TEXT,
-            nome TEXT,
-            cpf TEXT,
-            premiacao REAL,
-            mobilidade REAL,
-            alimentacao REAL,
-            tipo_usuario TEXT,
-            data_registro DATETIME
-        )
-    """)
-
     c.execute("""
         CREATE TABLE IF NOT EXISTS folha_ponto (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -250,14 +232,6 @@ def parse_data_rigorosa(valor):
             continue
 
     return str(date.today())
-
-
-def converter_para_date(valor):
-    res = parse_data_rigorosa(valor)
-    try:
-        return datetime.strptime(res, "%Y-%m-%d").date()
-    except Exception:
-        return date.today()
 
 
 def formatar_data_br(valor):
@@ -1033,7 +1007,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO (Com valores completos)
+# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO (Ordem e Valores Corrigidos)
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
     str_lit.title("💳 Pedido de Saldo Alimentação (VA)")
@@ -1041,10 +1015,10 @@ elif menu == "💳 Pedido Saldo Alimentação":
     conn = sqlite3.connect(DB_FILE)
     df_va = pd.read_sql_query(
         """
-        SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.cpf as "CPF",
-               f.nome as "Filial", c.premiacao as "Premiação", 
+        SELECT c.cnpj_empresa as "CNPJ", c.nome as "Nome Completo", c.cpf as "CPF",
+               f.nome as "Obra", c.premiacao as "Premiação", 
                c.mobilidade as "Mobilidade", c.alimentacao as "Alimentação",
-               c.tipo_usuario_va as "Tipo Usuário", c.cnpj_empresa as "CNPJ Empresa"
+               c.tipo_usuario_va as "Tags"
         FROM colaboradores c
         LEFT JOIN filiais f ON c.filial_id = f.id
         WHERE c.status_colaborador = 'Ativo'
@@ -1058,20 +1032,18 @@ elif menu == "💳 Pedido Saldo Alimentação":
         str_lit.info("Nenhum colaborador ativo encontrado.")
     else:
         opcoes_f_va = ["Todas as Filiais"] + sorted(
-            df_va["Filial"].dropna().unique().tolist()
+            df_va["Obra"].dropna().unique().tolist()
         )
         f_va_sel = str_lit.selectbox(
-            "Filtrar Filial para Pedido VA:", options=opcoes_f_va
+            "Filtrar Obra para Pedido VA:", options=opcoes_f_va
         )
 
         df_va_filtered = df_va.copy()
         if f_va_sel != "Todas as Filiais":
-            df_va_filtered = df_va_filtered[
-                df_va_filtered["Filial"] == f_va_sel
-            ]
+            df_va_filtered = df_va_filtered[df_va_filtered["Obra"] == f_va_sel]
 
         str_lit.write(
-            "Ajuste os valores de Premiação, Mobilidade e Alimentação abaixo se necessário:"
+            "Ajuste os valores e tags abaixo se necessário (Ordem: CNPJ, Nome Completo, CPF, Obra, Premiação, Mobilidade, Alimentação, Tags):"
         )
         df_va_edit = str_lit.data_editor(
             df_va_filtered, hide_index=True, use_container_width=True
@@ -1082,10 +1054,10 @@ elif menu == "💳 Pedido Saldo Alimentação":
             value=datetime.now().strftime("%m/%Y"),
         )
 
-        if str_lit.button("📥 Exportar Pedido VA (Mantendo Valores Completos)"):
+        if str_lit.button("📥 Exportar Pedido VA"):
             output_va = io.BytesIO()
 
-            # Garantir formato numérico com 2 casas decimais para exportação correta
+            # Garantir formato numérico com 2 casas decimais e forçar a exibição correta
             df_export = df_va_edit.copy()
             for col_val in ["Premiação", "Mobilidade", "Alimentação"]:
                 if col_val in df_export.columns:
@@ -1098,6 +1070,17 @@ elif menu == "💳 Pedido Saldo Alimentação":
                     writer, index=False, sheet_name="Pedido_VA"
                 )
 
+                # Formatação de células do Excel para garantir que apareça com 2 casas decimais (ex: 684,00)
+                workbook = writer.book
+                worksheet = writer.sheets["Pedido_VA"]
+                # Colunas E, F, G correspondem a Premiação, Mobilidade e Alimentação na ordem solicitada
+                for col_idx in [5, 6, 7]:
+                    for row_idx in range(
+                        2, len(df_export) + 2
+                    ):  # Pula o cabeçalho
+                        cell = worksheet.cell(row=row_idx, column=col_idx)
+                        cell.number_format = "#,##0.00"
+
             str_lit.download_button(
                 label="📥 Baixar Planilha de Pedido VA em Excel",
                 data=output_va.getvalue(),
@@ -1105,7 +1088,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
             str_lit.success(
-                "Planilha gerada com os valores completos (duas casas decimais) com sucesso!"
+                "Planilha gerada com a ordem correta e valores completos (com centavos)!"
             )
 
 # ---------------------------------------------------------
@@ -1194,7 +1177,6 @@ elif menu == "📤 Exportar Dados":
     if df_exp_base.empty:
         str_lit.info("Nenhum dado disponível para exportação.")
     else:
-        # Filtro de Filial solicitado anteriormente
         lista_exp_filial = ["Todas as Filiais"] + sorted(
             df_exp_base["Filial"].dropna().unique().tolist()
         )
