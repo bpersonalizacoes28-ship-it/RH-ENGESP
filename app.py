@@ -56,6 +56,8 @@ DB_FILE = "gestao_empresa.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    
+    # Criação de todas as tabelas essenciais
     c.execute("""
         CREATE TABLE IF NOT EXISTS filiais (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,7 +135,7 @@ def init_db():
         )
     """)
 
-    # Garante a criação correta da tabela de histórico de pedidos VA para evitar OperationalError
+    # Tabela principal corrigida para evitar qualquer erro de tabela ausente
     c.execute("""
         CREATE TABLE IF NOT EXISTS historico_pedidos_va (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -258,19 +260,26 @@ def formatar_data_br(valor):
 
 def get_filiais_dict():
     conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
+    try:
+        df = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
+    except Exception:
+        df = pd.DataFrame(columns=["id", "nome"])
     conn.close()
     return dict(zip(df["nome"], df["id"])), dict(zip(df["id"], df["nome"]))
 
 
 def get_cargos_cadastrados():
     conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query(
-        "SELECT DISTINCT funcao FROM colaboradores WHERE funcao IS NOT NULL AND funcao != '' ORDER BY funcao",
-        conn,
-    )
+    try:
+        df = pd.read_sql_query(
+            "SELECT DISTINCT funcao FROM colaboradores WHERE funcao IS NOT NULL AND funcao != '' ORDER BY funcao",
+            conn,
+        )
+        cargos = df["funcao"].tolist()
+    except Exception:
+        cargos = []
     conn.close()
-    return df["funcao"].tolist()
+    return cargos
 
 
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
@@ -327,7 +336,10 @@ if menu == "📊 Dashboard / Consulta":
         FROM colaboradores c
         LEFT JOIN filiais f ON c.filial_id = f.id
     """
-    df = pd.read_sql_query(query, conn)
+    try:
+        df = pd.read_sql_query(query, conn)
+    except Exception:
+        df = pd.DataFrame()
     conn.close()
 
     if not df.empty:
@@ -415,7 +427,10 @@ elif menu == "🏢 Cadastro de Filiais":
     str_lit.markdown("---")
     str_lit.subheader("Filiais Cadastradas")
     conn = sqlite3.connect(DB_FILE)
-    df_f_cad = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais", conn)
+    try:
+        df_f_cad = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais", conn)
+    except Exception:
+        df_f_cad = pd.DataFrame()
     conn.close()
     if not df_f_cad.empty:
         df_f_cad["cnpj"] = df_f_cad["cnpj"].apply(formatar_cnpj)
@@ -493,9 +508,12 @@ elif menu == "📥 Importar Colaboradores por Filial":
 elif menu == "🏢 Filiais":
     str_lit.title("🏢 Gestão e Filtragem por Filial")
     conn = sqlite3.connect(DB_FILE)
-    df_filiais_list = pd.read_sql_query(
-        "SELECT id, nome, cnpj FROM filiais ORDER BY nome", conn
-    )
+    try:
+        df_filiais_list = pd.read_sql_query(
+            "SELECT id, nome, cnpj FROM filiais ORDER BY nome", conn
+        )
+    except Exception:
+        df_filiais_list = pd.DataFrame()
     conn.close()
 
     if df_filiais_list.empty:
@@ -520,20 +538,23 @@ elif menu == "🏢 Filiais":
         )
 
         conn = sqlite3.connect(DB_FILE)
-        df_colab_filial = pd.read_sql_query(
-            """
-            SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                   c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-                   c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-                   c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-                   c.status_colaborador as "Status", c.observacoes as "Observações"
-            FROM colaboradores c
-            WHERE c.filial_id = ?
-            ORDER BY c.nome
-        """,
-            conn,
-            params=(filial_id_atual,),
-        )
+        try:
+            df_colab_filial = pd.read_sql_query(
+                """
+                SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                       c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                       c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                       c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                       c.status_colaborador as "Status", c.observacoes as "Observações"
+                FROM colaboradores c
+                WHERE c.filial_id = ?
+                ORDER BY c.nome
+            """,
+                conn,
+                params=(filial_id_atual,),
+            )
+        except Exception:
+            df_colab_filial = pd.DataFrame()
         conn.close()
 
         if not df_colab_filial.empty:
@@ -588,16 +609,19 @@ elif menu == "🏢 Filiais":
 elif menu == "🔄 Transferência entre Filiais":
     str_lit.title("🔄 Transferência de Colaboradores entre Filiais")
     conn = sqlite3.connect(DB_FILE)
-    df_transf = pd.read_sql_query(
-        """
-        SELECT c.matricula, c.nome, c.filial_id, f.nome as filial_nome
-        FROM colaboradores c
-        LEFT JOIN filiais f ON c.filial_id = f.id
-        WHERE c.status_colaborador = 'Ativo'
-        ORDER BY c.nome
-    """,
-        conn,
-    )
+    try:
+        df_transf = pd.read_sql_query(
+            """
+            SELECT c.matricula, c.nome, c.filial_id, f.nome as filial_nome
+            FROM colaboradores c
+            LEFT JOIN filiais f ON c.filial_id = f.id
+            WHERE c.status_colaborador = 'Ativo'
+            ORDER BY c.nome
+        """,
+            conn,
+        )
+    except Exception:
+        df_transf = pd.DataFrame()
     conn.close()
 
     if df_transf.empty:
@@ -661,9 +685,12 @@ elif menu == "🔄 Transferência entre Filiais":
 elif menu == "👥 Colaboradores":
     str_lit.title("👥 Consulta de Colaboradores por Filial")
     conn = sqlite3.connect(DB_FILE)
-    df_filiais_colab = pd.read_sql_query(
-        "SELECT id, nome FROM filiais ORDER BY nome", conn
-    )
+    try:
+        df_filiais_colab = pd.read_sql_query(
+            "SELECT id, nome FROM filiais ORDER BY nome", conn
+        )
+    except Exception:
+        df_filiais_colab = pd.DataFrame()
     conn.close()
 
     if df_filiais_colab.empty:
@@ -675,32 +702,35 @@ elif menu == "👥 Colaboradores":
         )
 
         conn = sqlite3.connect(DB_FILE)
-        if filial_escolhida_colab_mod == "Todas as Filiais":
-            query_c = """
-                SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                       c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-                       c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-                       f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-                       c.status_colaborador as "Status", c.observacoes as "Observações"
-                FROM colaboradores c
-                LEFT JOIN filiais f ON c.filial_id = f.id
-                ORDER BY c.nome
-            """
-            df_c_res = pd.read_sql_query(query_c, conn)
-        else:
-            f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
-            query_c = """
-                SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                       c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-                       c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-                       f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-                       c.status_colaborador as "Status", c.observacoes as "Observações"
-                FROM colaboradores c
-                LEFT JOIN filiais f ON c.filial_id = f.id
-                WHERE c.filial_id = ?
-                ORDER BY c.nome
-            """
-            df_c_res = pd.read_sql_query(query_c, conn, params=(f_id_sel,))
+        try:
+            if filial_escolhida_colab_mod == "Todas as Filiais":
+                query_c = """
+                    SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                           c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                           c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                           f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                           c.status_colaborador as "Status", c.observacoes as "Observações"
+                    FROM colaboradores c
+                    LEFT JOIN filiais f ON c.filial_id = f.id
+                    ORDER BY c.nome
+                """
+                df_c_res = pd.read_sql_query(query_c, conn)
+            else:
+                f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
+                query_c = """
+                    SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                           c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                           c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                           f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                           c.status_colaborador as "Status", c.observacoes as "Observações"
+                    FROM colaboradores c
+                    LEFT JOIN filiais f ON c.filial_id = f.id
+                    WHERE c.filial_id = ?
+                    ORDER BY c.nome
+                """
+                df_c_res = pd.read_sql_query(query_c, conn, params=(f_id_sel,))
+        except Exception:
+            df_c_res = pd.DataFrame()
         conn.close()
 
         if not df_c_res.empty:
@@ -891,15 +921,18 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
     str_lit.title("✏️ Editar Cadastro do Colaborador")
 
     conn = sqlite3.connect(DB_FILE)
-    df_colab_geral = pd.read_sql_query(
-        """
-        SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial
-        FROM colaboradores c
-        LEFT JOIN filiais f ON c.filial_id = f.id
-        ORDER BY c.nome
-    """,
-        conn,
-    )
+    try:
+        df_colab_geral = pd.read_sql_query(
+            """
+            SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial
+            FROM colaboradores c
+            LEFT JOIN filiais f ON c.filial_id = f.id
+            ORDER BY c.nome
+        """,
+            conn,
+        )
+    except Exception:
+        df_colab_geral = pd.DataFrame()
     conn.close()
 
     if df_colab_geral.empty:
@@ -940,11 +973,14 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                 matricula_sel = colab_selecionado.split(" - ")[0]
 
                 conn = sqlite3.connect(DB_FILE)
-                df_detalhe = pd.read_sql_query(
-                    "SELECT * FROM colaboradores WHERE matricula = ?",
-                    conn,
-                    params=(matricula_sel,),
-                )
+                try:
+                    df_detalhe = pd.read_sql_query(
+                        "SELECT * FROM colaboradores WHERE matricula = ?",
+                        conn,
+                        params=(matricula_sel,),
+                    )
+                except Exception:
+                    df_detalhe = pd.DataFrame()
                 conn.close()
 
                 if not df_detalhe.empty:
@@ -1029,19 +1065,22 @@ elif menu == "💳 Pedido Saldo Alimentação":
 
     with aba_pedido:
         conn = sqlite3.connect(DB_FILE)
-        df_va = pd.read_sql_query(
-            """
-            SELECT c.cnpj_empresa as "CNPJ", c.nome as "Nome Completo", c.cpf as "CPF",
-                   f.nome as "Obra", c.premiacao as "Premiação", 
-                   c.mobilidade as "Mobilidade", c.alimentacao as "Alimentação",
-                   c.tipo_usuario_va as "Tags"
-            FROM colaboradores c
-            LEFT JOIN filiais f ON c.filial_id = f.id
-            WHERE c.status_colaborador = 'Ativo'
-            ORDER BY c.nome
-        """,
-            conn,
-        )
+        try:
+            df_va = pd.read_sql_query(
+                """
+                SELECT c.cnpj_empresa as "CNPJ", c.nome as "Nome Completo", c.cpf as "CPF",
+                       f.nome as "Obra", c.premiacao as "Premiação", 
+                       c.mobilidade as "Mobilidade", c.alimentacao as "Alimentação",
+                       c.tipo_usuario_va as "Tags"
+                FROM colaboradores c
+                LEFT JOIN filiais f ON c.filial_id = f.id
+                WHERE c.status_colaborador = 'Ativo'
+                ORDER BY c.nome
+            """,
+                conn,
+            )
+        except Exception:
+            df_va = pd.DataFrame()
         conn.close()
 
         if df_va.empty:
@@ -1127,6 +1166,18 @@ elif menu == "💳 Pedido Saldo Alimentação":
                 dados_json_pedido = df_export.to_json(orient="records")
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
+                
+                # Assegura a tabela antes de salvar
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS historico_pedidos_va (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        mes_ano TEXT,
+                        obra TEXT,
+                        data_geracao DATETIME,
+                        dados_json TEXT
+                    )
+                """)
+                
                 c.execute(
                     """
                     INSERT INTO historico_pedidos_va (mes_ano, obra, data_geracao, dados_json)
@@ -1156,14 +1207,17 @@ elif menu == "💳 Pedido Saldo Alimentação":
     with aba_historico_pedidos:
         str_lit.subheader("📜 Histórico de Pedidos de Saldo Alimentação Registrados")
         conn = sqlite3.connect(DB_FILE)
-        df_hist_va = pd.read_sql_query(
-            """
-            SELECT id, mes_ano as "Mês/Ano", obra as "Obra/Filial", data_geracao as "Data de Geração", dados_json
-            FROM historico_pedidos_va
-            ORDER BY id DESC
-        """,
-            conn,
-        )
+        try:
+            df_hist_va = pd.read_sql_query(
+                """
+                SELECT id, mes_ano as "Mês/Ano", obra as "Obra/Filial", data_geracao as "Data de Geração", dados_json
+                FROM historico_pedidos_va
+                ORDER BY id DESC
+            """,
+                conn,
+            )
+        except Exception:
+            df_hist_va = pd.DataFrame()
         conn.close()
 
         if df_hist_va.empty:
@@ -1208,16 +1262,19 @@ elif menu == "💳 Pedido Saldo Alimentação":
 elif menu == "⏱️ Folha de Ponto":
     str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
     conn = sqlite3.connect(DB_FILE)
-    df_ponto = pd.read_sql_query(
-        """
-        SELECT c.matricula as "Matrícula", c.nome as "Empregado", f.nome as "Filial"
-        FROM colaboradores c
-        LEFT JOIN filiais f ON c.filial_id = f.id
-        WHERE c.status_colaborador = 'Ativo'
-        ORDER BY c.nome
-    """,
-        conn,
-    )
+    try:
+        df_ponto = pd.read_sql_query(
+            """
+            SELECT c.matricula as "Matrícula", c.nome as "Empregado", f.nome as "Filial"
+            FROM colaboradores c
+            LEFT JOIN filiais f ON c.filial_id = f.id
+            WHERE c.status_colaborador = 'Ativo'
+            ORDER BY c.nome
+        """,
+            conn,
+        )
+    except Exception:
+        df_ponto = pd.DataFrame()
     conn.close()
 
     if df_ponto.empty:
@@ -1270,19 +1327,22 @@ elif menu == "📤 Exportar Dados":
     str_lit.title("📤 Central de Exportação de Dados")
 
     conn = sqlite3.connect(DB_FILE)
-    df_exp_base = pd.read_sql_query(
-        """
-        SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-               c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-               c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-               f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-               c.status_colaborador as "Status", c.observacoes as "Observações"
-        FROM colaboradores c
-        LEFT JOIN filiais f ON c.filial_id = f.id
-        ORDER BY c.nome
-    """,
-        conn,
-    )
+    try:
+        df_exp_base = pd.read_sql_query(
+            """
+            SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                   c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                   c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                   f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                   c.status_colaborador as "Status", c.observacoes as "Observações"
+            FROM colaboradores c
+            LEFT JOIN filiais f ON c.filial_id = f.id
+            ORDER BY c.nome
+        """,
+            conn,
+        )
+    except Exception:
+        df_exp_base = pd.DataFrame()
     conn.close()
 
     if df_exp_base.empty:
@@ -1324,15 +1384,18 @@ elif menu == "📤 Exportar Dados":
 elif menu == "📜 Histórico de Alterações":
     str_lit.title("📜 Histórico de Alterações e Movimentações")
     conn = sqlite3.connect(DB_FILE)
-    df_hist = pd.read_sql_query(
-        """
-        SELECT colaborador_matricula as "Matrícula", tipo_alteracao as "Tipo", 
-               valor_antigo as "Valor Antigo", valor_novo as "Valor Novo", data_registro as "Data Registro"
-        FROM historico_colaboradores
-        ORDER BY id DESC
-    """,
-        conn,
-    )
+    try:
+        df_hist = pd.read_sql_query(
+            """
+            SELECT colaborador_matricula as "Matrícula", tipo_alteracao as "Tipo", 
+                   valor_antigo as "Valor Antigo", valor_novo as "Valor Novo", data_registro as "Data Registro"
+            FROM historico_colaboradores
+            ORDER BY id DESC
+        """,
+            conn,
+        )
+    except Exception:
+        df_hist = pd.DataFrame()
     conn.close()
 
     if df_hist.empty:
