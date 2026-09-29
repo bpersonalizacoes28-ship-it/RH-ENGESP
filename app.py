@@ -126,13 +126,21 @@ def init_db():
         CREATE TABLE IF NOT EXISTS historico_colaboradores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             colaborador_matricula TEXT,
+            filial_id INTEGER,
             tipo_alteracao TEXT,
             valor_antigo TEXT,
             valor_novo TEXT,
             data_registro DATETIME,
-            FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula)
+            FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula),
+            FOREIGN KEY (filial_id) REFERENCES filiais (id)
         )
     """)
+
+    # Adiciona coluna filial_id no histórico caso a tabela já exista sem ela
+    try:
+        c.execute("ALTER TABLE historico_colaboradores ADD COLUMN filial_id INTEGER")
+    except Exception:
+        pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS historico_pedidos_va (
@@ -201,13 +209,20 @@ def registrar_historico(matricula, tipo, antigo, novo):
     if str(antigo).strip() != str(novo).strip():
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
+        
+        # Busca a filial atual do colaborador para vincular ao histórico
+        c.execute("SELECT filial_id FROM colaboradores WHERE matricula = ?", (matricula,))
+        res = c.fetchone()
+        filial_id_colab = res[0] if res and res[0] is not None else None
+
         c.execute(
             """
-            INSERT INTO historico_colaboradores (colaborador_matricula, tipo_alteracao, valor_antigo, valor_novo, data_registro)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO historico_colaboradores (colaborador_matricula, filial_id, tipo_alteracao, valor_antigo, valor_novo, data_registro)
+            VALUES (?, ?, ?, ?, ?, ?)
         """,
             (
                 matricula,
+                filial_id_colab,
                 tipo,
                 str(antigo),
                 str(novo),
@@ -736,7 +751,7 @@ elif menu == "🔄 Transferência entre Filiais":
                         str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 5: COLABORADORES (Com Abas Ativos/Demitidos e Seleção em Massa)
+# MÓDULO 5: COLABORADORES
 # ---------------------------------------------------------
 elif menu == "👥 Colaboradores":
     str_lit.title("👥 Gestão de Colaboradores por Filial (Ativos e Demitidos)")
@@ -760,7 +775,6 @@ elif menu == "👥 Colaboradores":
 
         aba_ativos, aba_demitidos = str_lit.tabs(["🟢 Colaboradores Ativos", "🔴 Colaboradores Demitidos"])
 
-        # ================= ABAS: ATIVOS =================
         with aba_ativos:
             conn = sqlite3.connect(DB_FILE)
             try:
@@ -862,7 +876,6 @@ elif menu == "👥 Colaboradores":
                         str_lit.success(f"{len(matriculas_para_demitir)} colaborador(es) marcado(s) como Demitido(s) e alocado(s) na aba de Demitidos!")
                         str_lit.rerun()
 
-        # ================= ABAS: DEMITIDOS =================
         with aba_demitidos:
             conn = sqlite3.connect(DB_FILE)
             try:
@@ -1581,26 +1594,62 @@ elif menu == "📤 Exportar Dados":
         )
 
 # ---------------------------------------------------------
-# MÓDULO 11: HISTÓRICO DE ALTERAÇÕES
+# MÓDULO 11: HISTÓRICO DE ALTERAÇÕES (Organizado por Filial)
 # ---------------------------------------------------------
 elif menu == "📜 Histórico de Alterações":
-    str_lit.title("📜 Histórico de Alterações e Movimentações")
+    str_lit.title("📜 Histórico de Alterações e Movimentações por Filial")
+
     conn = sqlite3.connect(DB_FILE)
     try:
-        df_hist = pd.read_sql_query(
-            """
-            SELECT colaborador_matricula as "Matrícula", tipo_alteracao as "Tipo", 
-                   valor_antigo as "Valor Antigo", valor_novo as "Valor Novo", data_registro as "Data Registro"
-            FROM historico_colaboradores
-            ORDER BY id DESC
-        """,
-            conn,
-        )
+        df_filiais_hist = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
     except Exception:
-        df_hist = pd.DataFrame()
+        df_filiais_hist = pd.DataFrame()
     conn.close()
 
-    if df_hist.empty:
-        str_lit.info("Nenhum histórico registrado até o momento.")
+    if df_filiais_hist.empty:
+        str_lit.info("Nenhuma filial cadastrada.")
     else:
-        str_lit.dataframe(df_hist, use_container_width=True)
+        lista_nomes_f_hist = ["Todas as Filiais"] + df_filiais_hist["nome"].tolist()
+        filial_escolhida_hist = str_lit.selectbox(
+            "🏢 Selecione a Filial para visualizar o histórico de alterações:", lista_nomes_f_hist
+        )
+
+        conn = sqlite3.connect(DB_FILE)
+        try:
+            if filial_escolhida_hist == "Todas as Filiais":
+                query_hist = """
+                    SELECT h.colaborador_matricula as "Matrícula", c.nome as "Empregado", 
+                           f.nome as "Filial", h.tipo_alteracao as "Tipo de Alteração", 
+                           h.valor_antigo as "Valor Antigo", h.valor_novo as "Valor Novo", 
+                           h.data_registro as "Data Registro"
+                    FROM historico_colaboradores h
+                    LEFT JOIN colaboradores c ON h.colaborador_matricula = c.matricula
+                    LEFT JOIN filiais f ON h.filial_id = f.id
+                    ORDER BY h.id DESC
+                """
+                df_hist = pd.read_sql_query(query_hist, conn)
+            else:
+                f_id_sel_hist = filiais_nome_para_id[filial_escolhida_hist]
+                query_hist = """
+                    SELECT h.colaborador_matricula as "Matrícula", c.nome as "Empregado", 
+                           f.nome as "Filial", h.tipo_alteracao as "Tipo de Alteração", 
+                           h.valor_antigo as "Valor Antigo", h.valor_novo as "Valor Novo", 
+                           h.data_registro as "Data Registro"
+                    FROM historico_colaboradores h
+                    LEFT JOIN colaboradores c ON h.colaborador_matricula = c.matricula
+                    LEFT JOIN filiais f ON h.filial_id = f.id
+                    WHERE h.filial_id = ?
+                    ORDER BY h.id DESC
+                """
+                df_hist = pd.read_sql_query(query_hist, conn, params=(f_id_sel_hist,))
+        except Exception:
+            df_hist = pd.DataFrame()
+        conn.close()
+
+        str_lit.metric("Total de Registros no Histórico", len(df_hist))
+        str_lit.markdown("---")
+
+        if df_hist.empty:
+            str_lit.info("Nenhum histórico registrado para esta filial.")
+        else:
+            str_lit.dataframe(df_hist, use_container_width=True)
