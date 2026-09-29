@@ -113,6 +113,7 @@ def init_db():
       ("premiacao", "REAL DEFAULT 0"),
       ("mobilidade", "REAL DEFAULT 0"),
       ("alimentacao", "REAL DEFAULT 0"),
+      ("tipo_usuario_va", "TEXT DEFAULT 'Já Usuário'"),
   ]
   for col, def_sql in novas_colunas:
     try:
@@ -131,6 +132,8 @@ def init_db():
             FOREIGN KEY (colaborador_matricula) REFERENCES colaboradores (matricula)
         )
     """)
+  
+  # Recriar ou garantir estrutura correta da tabela de histórico de VA
   c.execute("""
         CREATE TABLE IF NOT EXISTS historico_pedidos_va (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,6 +150,7 @@ def init_db():
             data_registro DATETIME
         )
     """)
+
   c.execute("""
         CREATE TABLE IF NOT EXISTS folha_ponto (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1116,7 +1120,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                 )
 
 # ---------------------------------------------------------
-# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO (CUSTOMIZADO COM ORDEM DE COLUNAS E DADOS DA FILIAL)
+# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
   str_lit.title("💳 Pedido de Saldo / Cartão Alimentação")
@@ -1149,7 +1153,6 @@ elif menu == "💳 Pedido Saldo Alimentação":
           else "37.608.361/0001-25"
       )
 
-      # Atribuir o CNPJ da filial caso esteja vazio no colaborador
       df_va_filial["cnpj_empresa"] = df_va_filial["cnpj_empresa"].fillna(
           cnpj_unidade
       )
