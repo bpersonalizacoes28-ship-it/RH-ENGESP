@@ -2,7 +2,6 @@
 import io
 import json
 import re
-from PIL import Image
 import pandas as pd
 import sqlite3
 import streamlit as str_lit
@@ -52,7 +51,7 @@ CNPJ_PADRAO = "37.608.361/0001-25"
 
 
 # ---------------------------------------------------------
-# BANCO DE DADOS - INICIALIZAÇÃO E MIGRAÇÃO ROBUSTA
+# BANCO DE DADOS - INICIALIZAÇÃO E PERSISTÊNCIA EM TEMPO REAL
 # ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -163,7 +162,7 @@ init_db()
 
 
 # ---------------------------------------------------------
-# FUNÇÕES DE FORMATAÇÃO E TRATAMENTO RIGOROSO DE DATAS
+# FUNÇÕES DE FORMATAÇÃO E LEITURA DINÂMICA
 # ---------------------------------------------------------
 def formatar_cpf(valor):
     if not valor or pd.isna(valor):
@@ -340,7 +339,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL
+# MENU PRINCIPAL (LOGO REMOVIDO DA SIDEBAR)
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -367,13 +366,7 @@ str_lit.markdown("---")
 str_lit.sidebar.markdown("## 🏢 ENGESP")
 str_lit.sidebar.write("Engenharia São Patrício - Gestão ADM")
 str_lit.sidebar.markdown("---")
-logo_file = str_lit.sidebar.file_uploader(
-    "Enviar Logo da Empresa", type=["png", "jpg", "jpeg"]
-)
-if logo_file is not None:
-    image = Image.open(logo_file)
-    str_lit.sidebar.image(image, use_container_width=True)
-str_lit.sidebar.markdown("---")
+str_lit.sidebar.info("💾 **Status:** Todos os dados e atualizações ficam salvos permanentemente em tempo real no banco de dados local.")
 
 # ---------------------------------------------------------
 # MÓDULO 1: DASHBOARD / CONSULTA
@@ -473,7 +466,7 @@ elif menu == "🏢 Cadastro de Filiais":
                     )
                     conn.commit()
                     conn.close()
-                    str_lit.success(f"Filial '{nome_f}' cadastrada com sucesso!")
+                    str_lit.success(f"Filial '{nome_f}' cadastrada e salva com sucesso!")
                     str_lit.rerun()
                 except sqlite3.IntegrityError:
                     str_lit.error("Erro: Filial já cadastrada.")
@@ -493,13 +486,13 @@ elif menu == "🏢 Cadastro de Filiais":
         str_lit.info("Nenhuma filial cadastrada.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (CORREÇÃO ABSOLUTA)
+# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
 # ---------------------------------------------------------
 elif menu == "📥 Importar Colaboradores por Filial":
-    str_lit.title("📥 Importação Sincronizada e Blindada por Filial")
+    str_lit.title("📥 Importação Sincronizada e Persistente por Filial")
     str_lit.info(
-        "💡 **Atualização Garantida:** O sistema lê dinamicamente as filiais, mapeia corretamente "
-        "as colunas da planilha (independentemente de maiúsculas/minúsculas) e atualiza ou insere sem duplicidade."
+        "💡 **Persistência Ativa:** As importações são salvas instantaneamente no banco de dados. "
+        "Matrículas existentes são atualizadas e alocadas na nova filial sem duplicidade, ficando gravadas permanentemente."
     )
 
     f_map_atual, _ = get_filiais_dict()
@@ -524,25 +517,22 @@ elif menu == "📥 Importar Colaboradores por Filial":
                 else:
                     df_imp = pd.read_excel(arquivo_upload, engine="openpyxl")
 
-                # Normaliza os nomes das colunas da planilha para maiúsculas/minúsculas padrão
                 df_imp.columns = [str(col).strip().lower() for col in df_imp.columns]
 
                 str_lit.write(f"Pré-visualização dos dados importados ({len(df_imp)} registros encontrados):")
                 str_lit.dataframe(df_imp.head(), use_container_width=True)
 
-                if str_lit.button("🚀 Processar e Atualizar Instantaneamente"):
+                if str_lit.button("🚀 Processar e Salvar Permanentemente"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     
                     inseridos = 0
                     atualizados = 0
                     
-                    # Recarrega o ID da filial atualizado diretamente da base
                     f_dict_recarregado, _ = get_filiais_dict()
                     filial_id_destino = f_dict_recarregado.get(filial_imp)
 
                     for _, r in df_imp.iterrows():
-                        # Busca flexível por colunas comuns na planilha
                         mat = str(r.get("matrícula", r.get("matricula", r.get("mat", "")))).strip()
                         nome = str(r.get("nome", r.get("empregado", r.get("funcionário", "")))).strip()
                         
@@ -551,12 +541,10 @@ elif menu == "📥 Importar Colaboradores por Filial":
                             rg_val = str(r.get("rg", "")).strip()
                             cargo_val = str(r.get("cargo", r.get("funcao", ""))).strip()
                             
-                            # Verifica se o colaborador já existe no banco de dados geral
                             c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
                             existe = c.fetchone()
                             
                             if existe:
-                                # Atualiza e aloca obrigatoriamente na nova filial selecionada
                                 c.execute(
                                     """
                                     UPDATE colaboradores 
@@ -569,7 +557,6 @@ elif menu == "📥 Importar Colaboradores por Filial":
                                 )
                                 atualizados += 1
                             else:
-                                # Insere novo registro vinculado diretamente à filial escolhida
                                 c.execute(
                                     """
                                     INSERT INTO colaboradores (
@@ -596,7 +583,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
                     conn.close()
                     
                     str_lit.success(
-                        f"Importação realizada com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados/Alocados na filial: {atualizados}."
+                        f"Importação salva com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados/Alocados: {atualizados}."
                     )
                     str_lit.rerun()
             except Exception as e:
@@ -671,7 +658,7 @@ elif menu == "🔄 Transferência entre Filiais":
                 
                 str_lit.info(f"Total de colaboradores selecionados para transferência: **{len(matriculas_selecionadas)}**")
                 
-                if str_lit.button("🔄 Efetivar Transferência em Lote", type="primary"):
+                if str_lit.button("🔄 Efetivar e Salvar Transferência", type="primary"):
                     if not matriculas_selecionadas:
                         str_lit.error("Selecione pelo menos um colaborador na tabela acima marcando a caixa 'Selecionar'.")
                     else:
@@ -700,7 +687,7 @@ elif menu == "🔄 Transferência entre Filiais":
                             )
                             
                         str_lit.success(
-                            f"Sucesso! {len(matriculas_selecionadas)} colaborador(es) transferido(s) para a filial {filial_destino}!"
+                            f"Sucesso! {len(matriculas_selecionadas)} colaborador(es) transferido(s) e salvos permanentemente!"
                         )
                         str_lit.rerun()
 
@@ -776,7 +763,7 @@ elif menu == "👥 Colaboradores":
             df_c_res.insert(0, "Selecionar", False)
 
             str_lit.write(
-                "Marque a caixa 'Selecionar' nos registros que deseja remover da lista (ex: demitidos):"
+                "Marque a caixa 'Selecionar' nos registros que deseja remover da lista e clique em deletar:"
             )
             df_editavel = str_lit.data_editor(
                 df_c_res,
@@ -798,7 +785,7 @@ elif menu == "👥 Colaboradores":
                     f"⚠️ Você selecionou {len(matriculas_para_excluir)} colaborador(es) para exclusão."
                 )
                 if str_lit.button(
-                    "🗑️ Deletar Colaboradores Selecionados", type="primary"
+                    "🗑️ Deletar Colaboradores Selecionados Permanentemente", type="primary"
                 ):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
@@ -810,7 +797,7 @@ elif menu == "👥 Colaboradores":
                     conn.commit()
                     conn.close()
                     str_lit.success(
-                        "Colaboradores selecionados excluídos com sucesso!"
+                        "Colaboradores selecionados excluídos com sucesso do banco de dados!"
                     )
                     str_lit.rerun()
 
@@ -882,7 +869,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
             data_mov if status_colab_novo == "Demitido" else None
         )
 
-        if str_lit.button("💾 Finalizar Cadastro / Movimentação"):
+        if str_lit.button("💾 Salvar Cadastro Permanentemente"):
             if not matricula or not empregado:
                 str_lit.error(
                     "Preencha os campos obrigatórios (Empregado e Matrícula)."
@@ -933,7 +920,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                         f"Tipo: {tipo_mov} / Subtipo: {subtipo_mov} - Filial {filial_nome}",
                     )
                     str_lit.success(
-                        f"Empregado {empregado} cadastrado/movimentado com sucesso!"
+                        f"Empregado {empregado} cadastrado e salvo com sucesso!"
                     )
                 except sqlite3.IntegrityError:
                     str_lit.error(
@@ -1047,7 +1034,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         )
 
                         btn_salvar_edicao = str_lit.form_submit_button(
-                            "💾 Salvar Alterações"
+                            "💾 Salvar Alterações Permanentemente"
                         )
 
                         if btn_salvar_edicao:
@@ -1079,7 +1066,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                                 e_nome,
                             )
                             str_lit.success(
-                                "Cadastro atualizado com sucesso!"
+                                "Cadastro atualizado e salvo permanentemente!"
                             )
                             str_lit.rerun()
 
@@ -1159,7 +1146,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                 df_va_filtered, hide_index=True, use_container_width=True
             )
 
-            if str_lit.button("📥 Gerar e Salvar Pedido VA no Histórico"):
+            if str_lit.button("📥 Gerar e Salvar Pedido VA Permanentemente"):
                 output_va = io.BytesIO()
 
                 df_export = df_va_edit.copy()
@@ -1211,7 +1198,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                 conn.close()
 
                 str_lit.success(
-                    f"Pedido referente a {mes_ano_ref} gerado e salvo com sucesso no histórico!"
+                    f"Pedido referente a {mes_ano_ref} gerado e salvo com sucesso no histórico permanente!"
                 )
 
                 str_lit.download_button(
@@ -1413,7 +1400,7 @@ elif menu == "⏱️ Folha de Ponto":
             c_res2.metric("Total Horas Extras 100% (Domingos e Feriados)", f"{total_he_100_calc:.2f} h")
             str_lit.markdown("---")
 
-            if str_lit.button("💾 Salvar Folha de Ponto Completa", type="primary"):
+            if str_lit.button("💾 Salvar Folha de Ponto Permanentemente", type="primary"):
                 json_dados = json.dumps(dicionario_salvar)
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
@@ -1428,7 +1415,7 @@ elif menu == "⏱️ Folha de Ponto":
                 )
                 conn.commit()
                 conn.close()
-                str_lit.success(f"Folha de ponto de {mes_ano_str} salva com sucesso!")
+                str_lit.success(f"Folha de ponto de {mes_ano_str} salva com sucesso no banco de dados!")
 
 # ---------------------------------------------------------
 # MÓDULO 10: EXPORTAR DADOS
