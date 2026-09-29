@@ -361,7 +361,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL (Sem exportação e sem histórico)
+# MENU PRINCIPAL (Todos os 9 módulos essenciais restaurados)
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -1015,3 +1015,234 @@ elif menu == "👥 Colaboradores":
                             conn.close()
                             str_lit.success(f"Ação concluída com sucesso para {len(colaboradores_excluidos_sel)} colaborador(es)!")
                             str_lit.rerun()
+
+# ---------------------------------------------------------
+# MÓDULO 6: NOVO COLABORADOR / ADMISSÃO
+# ---------------------------------------------------------
+elif menu == "➕ Novo Colaborador / Admissão":
+    str_lit.title("➕ Cadastro Individual de Novo Colaborador")
+    
+    f_map, _ = get_filiais_dict()
+    if not f_map:
+        str_lit.warning("⚠️ Cadastre uma filial primeiro no módulo 'Cadastro de Filiais'.")
+    else:
+        with str_lit.form("form_novo_colaborador"):
+            c1, c2 = str_lit.columns(2)
+            with c1:
+                mat_novo = str_lit.text_input("Matrícula *")
+                nome_novo = str_lit.text_input("Nome Completo *")
+                cpf_novo = str_lit.text_input("CPF")
+                rg_novo = str_lit.text_input("RG")
+                cargo_novo = str_lit.text_input("Cargo / Função")
+            with c2:
+                filial_novo = str_lit.selectbox("Filial / Obra *", options=list(f_map.keys()))
+                tipo_contrato = str_lit.selectbox("Tipo de Contratação", options=["CLT", "PJ", "Temporário", "Outros"])
+                # Sem restrição de data
+                dt_admissao = str_lit.date_input("Data de Admissão", value=date.today(), format="DD/MM/YYYY")
+                obs_novo = str_lit.text_input("Observações Iniciais")
+
+            btn_salvar_novo = str_lit.form_submit_button("💾 Salvar Novo Colaborador")
+
+            if btn_salvar_novo:
+                if not mat_novo or not nome_novo:
+                    str_lit.error("Preencha os campos obrigatórios: Matrícula e Nome Completo.")
+                else:
+                    try:
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute(
+                            """
+                            INSERT INTO colaboradores (
+                                matricula, nome, cpf, rg, funcao, cnpj_empresa, filial_id, 
+                                data_contratacao, status_colaborador, tipo_contratacao, 
+                                tipo_movimentacao, subtipo_movimentacao, data_movimentacao, observacoes
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Ativo', ?, 'Entrada', 'Admissão', ?, ?)
+                        """,
+                            (
+                                mat_novo.strip(),
+                                nome_novo.strip(),
+                                formatar_cpf(cpf_novo),
+                                rg_novo.strip(),
+                                cargo_novo.strip(),
+                                CNPJ_PADRAO,
+                                f_map[filial_novo],
+                                str(dt_admissao),
+                                tipo_contrato,
+                                str(dt_admissao),
+                                obs_novo.strip(),
+                            ),
+                        )
+                        conn.commit()
+                        conn.close()
+                        str_lit.success(f"Colaborador '{nome_novo}' cadastrado com sucesso!")
+                    except sqlite3.IntegrityError:
+                        str_lit.error(f"Erro: A matrícula '{mat_novo}' já está cadastrada no sistema.")
+
+# ---------------------------------------------------------
+# MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
+# ---------------------------------------------------------
+elif menu == "✏️ Editar Cadastro do Colaborador":
+    str_lit.title("✏️ Edição de Dados Cadastrais")
+    
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        df_edit = pd.read_sql_query("SELECT matricula, nome FROM colaboradores ORDER BY nome", conn)
+    except Exception:
+        df_edit = pd.DataFrame()
+    conn.close()
+
+    if df_edit.empty:
+        str_lit.info("Nenhum colaborador cadastrado para editar.")
+    else:
+        colabs_opcoes = {f"{row['nome']} (Mat: {row['matricula']})": row['matricula'] for _, row in df_edit.iterrows()}
+        colab_escolhido_str = str_lit.selectbox("🔍 Selecione o Colaborador para Editar:", options=list(colabs_opcoes.keys()))
+        mat_editar = colabs_opcoes[colab_escolhido_str]
+
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT * FROM colaboradores WHERE matricula = ?", (mat_editar,))
+        coluna_nomes = [description[0] for description in c.description]
+        dados_colab = c.fetchone()
+        conn.close()
+
+        if dados_colab:
+            dados_dict = dict(zip(coluna_nomes, dados_colab))
+            f_map, _ = get_filiais_dict()
+            
+            with str_lit.form("form_edicao_colab"):
+                e1, e2 = str_lit.columns(2)
+                with e1:
+                    novo_nome = str_lit.text_input("Nome Completo", value=str(dados_dict.get("nome", "")))
+                    novo_cpf = str_lit.text_input("CPF", value=str(dados_dict.get("cpf", "")))
+                    novo_rg = str_lit.text_input("RG", value=str(dados_dict.get("rg", "")))
+                    nova_funcao = str_lit.text_input("Cargo / Função", value=str(dados_dict.get("funcao", "")))
+                with e2:
+                    filial_atual_id = dados_dict.get("filial_id")
+                    filial_nome_atual = [k for k, v in f_map.items() if v == filial_atual_id]
+                    filial_atual_str = filial_nome_atual[0] if filial_nome_atual else list(f_map.keys())[0]
+                    
+                    nova_filial = str_lit.selectbox("Filial", options=list(f_map.keys()), index=list(f_map.keys()).index(filial_atual_str))
+                    novo_status = str_lit.selectbox("Status", options=["Ativo", "Demitido", "Excluído"], index=["Ativo", "Demitido", "Excluído"].index(str(dados_dict.get("status_colaborador", "Ativo"))))
+                    nova_obs = str_lit.text_input("Observações", value=str(dados_dict.get("observacoes", "")))
+
+                btn_atualizar = str_lit.form_submit_button("💾 Salvar Alterações")
+
+                if btn_atualizar:
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("""
+                        UPDATE colaboradores 
+                        SET nome = ?, cpf = ?, rg = ?, funcao = ?, filial_id = ?, status_colaborador = ?, observacoes = ?
+                        WHERE matricula = ?
+                    """, (
+                        novo_nome.strip(),
+                        formatar_cpf(novo_cpf),
+                        novo_rg.strip(),
+                        nova_funcao.strip(),
+                        f_map[nova_filial],
+                        novo_status,
+                        nova_obs.strip(),
+                        mat_editar
+                    ))
+                    conn.commit()
+                    conn.close()
+                    str_lit.success("Cadastro atualizado com sucesso!")
+                    str_lit.rerun()
+
+# ---------------------------------------------------------
+# MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
+# ---------------------------------------------------------
+elif menu == "💳 Pedido Saldo Alimentação":
+    str_lit.title("💳 Gestão e Pedido de Saldo Alimentação / VA")
+    
+    f_map, _ = get_filiais_dict()
+    if not f_map:
+        str_lit.warning("Cadastre filiais primeiro.")
+    else:
+        filial_va = str_lit.selectbox("Selecione a Filial para o Pedido de VA:", options=list(f_map.keys()))
+        f_id = f_map[filial_va]
+
+        conn = sqlite3.connect(DB_FILE)
+        try:
+            df_va = pd.read_sql_query(
+                """
+                SELECT matricula as "Matrícula", nome as "Empregado", funcao as "Cargo", 
+                       saldo_cartao_alimentacao as "Saldo Atual (R$)", tipo_usuario_va as "Tipo Usuário"
+                FROM colaboradores
+                WHERE filial_id = ? AND status_colaborador = 'Ativo'
+                ORDER BY nome
+            """,
+                conn, params=(f_id,)
+            )
+        except Exception:
+            df_va = pd.DataFrame()
+        conn.close()
+
+        if df_va.empty:
+            str_lit.info("Nenhum colaborador ativo nesta filial.")
+        else:
+            str_lit.write("Atualize os valores de saldo ou tipo de usuário abaixo e salve:")
+            df_va_editado = str_lit.data_editor(df_va, hide_index=True, use_container_width=True)
+
+            if str_lit.button("💾 Salvar Alterações de Saldo VA"):
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                for _, row in df_va_editado.iterrows():
+                    c.execute("""
+                        UPDATE colaboradores 
+                        SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
+                        WHERE matricula = ?
+                    """, (row["Saldo Atual (R$)"], row["Tipo Usuário"], row["Matrícula"]))
+                conn.commit()
+                conn.close()
+                str_lit.success("Saldos de alimentação salvos com sucesso!")
+                str_lit.rerun()
+
+# ---------------------------------------------------------
+# MÓDULO 9: FOLHA DE PONTO
+# ---------------------------------------------------------
+elif menu == "⏱️️ Folha de Ponto":
+    str_lit.title("⏱️ Controle de Horas Extras e Folha de Ponto")
+    
+    f_map, _ = get_filiais_dict()
+    if not f_map:
+        str_lit.warning("Cadastre filiais primeiro.")
+    else:
+        filial_ponto = str_lit.selectbox("Selecione a Filial:", options=list(f_map.keys()))
+        f_id = f_map[filial_ponto]
+
+        conn = sqlite3.connect(DB_FILE)
+        try:
+            df_ponto = pd.read_sql_query(
+                """
+                SELECT matricula as "Matrícula", nome as "Empregado", funcao as "Cargo", 
+                       he_50 as "HE 50% (Horas)", he_100 as "HE 100% (Horas)"
+                FROM colaboradores
+                WHERE filial_id = ? AND status_colaborador = 'Ativo'
+                ORDER BY nome
+            """,
+                conn, params=(f_id,)
+            )
+        except Exception:
+            df_ponto = pd.DataFrame()
+        conn.close()
+
+        if df_ponto.empty:
+            str_lit.info("Nenhum colaborador ativo encontrado nesta filial.")
+        else:
+            str_lit.write("Insira ou ajuste as horas extras (50% e 100%) para cada colaborador:")
+            df_ponto_editado = str_lit.data_editor(df_ponto, hide_index=True, use_container_width=True)
+
+            if str_lit.button("💾 Salvar Apontamento de Ponto"):
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                for _, row in df_ponto_editado.iterrows():
+                    c.execute("""
+                        UPDATE colaboradores 
+                        SET he_50 = ?, he_100 = ?
+                        WHERE matricula = ?
+                    """, (row["HE 50% (Horas)"], row["HE 100% (Horas)"], row["Matrícula"]))
+                conn.commit()
+                conn.close()
+                str_lit.success("Apontamentos de ponto salvos com sucesso!")
+                str_lit.rerun()
