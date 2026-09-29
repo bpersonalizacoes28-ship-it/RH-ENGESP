@@ -493,21 +493,23 @@ elif menu == "🏢 Cadastro de Filiais":
         str_lit.info("Nenhuma filial cadastrada.")
 
 # ---------------------------------------------------------
-# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (SINCRONIZAÇÃO TOTAL)
+# MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL (CORREÇÃO ABSOLUTA)
 # ---------------------------------------------------------
 elif menu == "📥 Importar Colaboradores por Filial":
-    str_lit.title("📥 Importação Sincronizada de Colaboradores em Lote")
+    str_lit.title("📥 Importação Sincronizada e Blindada por Filial")
     str_lit.info(
-        "💡 **Sincronização Ativa:** A importação abaixo atualiza instantaneamente todos os módulos do sistema. "
-        "Matrículas existentes terão seus dados atualizados e serão alocadas na filial escolhida sem duplicidade."
+        "💡 **Atualização Garantida:** O sistema lê dinamicamente as filiais, mapeia corretamente "
+        "as colunas da planilha (independentemente de maiúsculas/minúsculas) e atualiza ou insere sem duplicidade."
     )
 
-    if not filiais_nome_para_id:
+    f_map_atual, _ = get_filiais_dict()
+
+    if not f_map_atual:
         str_lit.warning("Cadastre uma filial primeiro.")
     else:
         filial_imp = str_lit.selectbox(
             "Selecione a Filial de Destino da Importação:",
-            options=list(filiais_nome_para_id.keys()),
+            options=list(f_map_atual.keys()),
         )
         arquivo_upload = str_lit.file_uploader(
             "Envie a planilha (Excel .xlsx, .xls, .xlsm ou CSV):",
@@ -522,33 +524,39 @@ elif menu == "📥 Importar Colaboradores por Filial":
                 else:
                     df_imp = pd.read_excel(arquivo_upload, engine="openpyxl")
 
+                # Normaliza os nomes das colunas da planilha para maiúsculas/minúsculas padrão
+                df_imp.columns = [str(col).strip().lower() for col in df_imp.columns]
+
                 str_lit.write(f"Pré-visualização dos dados importados ({len(df_imp)} registros encontrados):")
                 str_lit.dataframe(df_imp.head(), use_container_width=True)
 
-                if str_lit.button("🚀 Processar, Atualizar Todos os Módulos e Importar"):
+                if str_lit.button("🚀 Processar e Atualizar Instantaneamente"):
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
                     
                     inseridos = 0
                     atualizados = 0
                     
-                    # Recarrega o dicionário atualizado de filiais direto do banco
-                    f_dict_atual, _ = get_filiais_dict()
-                    filial_id_destino = f_dict_atual.get(filial_imp)
+                    # Recarrega o ID da filial atualizado diretamente da base
+                    f_dict_recarregado, _ = get_filiais_dict()
+                    filial_id_destino = f_dict_recarregado.get(filial_imp)
 
                     for _, r in df_imp.iterrows():
-                        mat = str(r.get("Matrícula", r.get("matricula", ""))).strip()
-                        nome = str(r.get("Nome", r.get("nome", ""))).strip()
+                        # Busca flexível por colunas comuns na planilha
+                        mat = str(r.get("matrícula", r.get("matricula", r.get("mat", "")))).strip()
+                        nome = str(r.get("nome", r.get("empregado", r.get("funcionário", "")))).strip()
                         
                         if mat and mat.lower() != "nan" and nome and nome.lower() != "nan":
-                            cpf_val = formatar_cpf(r.get("CPF", r.get("cpf", "")))
-                            rg_val = str(r.get("RG", r.get("rg", ""))).strip()
-                            cargo_val = str(r.get("Cargo", r.get("funcao", ""))).strip()
+                            cpf_val = formatar_cpf(r.get("cpf", ""))
+                            rg_val = str(r.get("rg", "")).strip()
+                            cargo_val = str(r.get("cargo", r.get("funcao", ""))).strip()
                             
+                            # Verifica se o colaborador já existe no banco de dados geral
                             c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
                             existe = c.fetchone()
                             
                             if existe:
+                                # Atualiza e aloca obrigatoriamente na nova filial selecionada
                                 c.execute(
                                     """
                                     UPDATE colaboradores 
@@ -561,6 +569,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
                                 )
                                 atualizados += 1
                             else:
+                                # Insere novo registro vinculado diretamente à filial escolhida
                                 c.execute(
                                     """
                                     INSERT INTO colaboradores (
@@ -587,7 +596,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
                     conn.close()
                     
                     str_lit.success(
-                        f"Importação sincronizada com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados/Alocados: {atualizados}. Todos os módulos foram atualizados."
+                        f"Importação realizada com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados/Alocados na filial: {atualizados}."
                     )
                     str_lit.rerun()
             except Exception as e:
