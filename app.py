@@ -257,6 +257,32 @@ def formatar_data_br(valor):
         return str(valor)
 
 
+def converter_hora_flexivel(valor):
+    """Converte valores digitados com vírgula, ponto ou dois-pontos em horas decimais (float)."""
+    if valor is None or pd.isna(valor):
+        return 0.0
+    val_str = str(valor).strip()
+    if not val_str or val_str in ["0", "0.0", "None", "nan"]:
+        return 0.0
+
+    # Se contém dois-pontos (ex: 01:30 -> 1 hora e 30 min = 1.5)
+    if ":" in val_str:
+        try:
+            partes = val_str.split(":")
+            horas = float(partes[0])
+            minutos = float(partes[1]) if len(partes) > 1 else 0.0
+            return horas + (minutos / 60.0)
+        except Exception:
+            return 0.0
+
+    # Substitui vírgula por ponto para conversão float padrão
+    val_str = val_str.replace(",", ".")
+    try:
+        return float(val_str)
+    except Exception:
+        return 0.0
+
+
 def get_filiais_dict():
     conn = sqlite3.connect(DB_FILE)
     try:
@@ -396,7 +422,7 @@ if menu == "📊 Dashboard / Consulta":
         str_lit.dataframe(df_filtered, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 2: CADASTRO DE FILIAIS (Com CNPJ Padrão Pré-preenchido)
+# MÓDULO 2: CADASTRO DE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🏢 Cadastro de Filiais":
     str_lit.title("🏢 Cadastro de Novas Filiais")
@@ -604,7 +630,7 @@ elif menu == "🏢 Filiais":
             )
 
 # ---------------------------------------------------------
-# MÓDULO 5: TRANSFERÊNCIA ENTRE FILIAIS (Em Lote / Múltiplos Colaboradores)
+# MÓDULO 5: TRANSFERÊNCIA ENTRE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🔄 Transferência entre Filiais":
     str_lit.title("🔄 Transferência de Colaboradores entre Filiais (Múltiplos)")
@@ -635,10 +661,8 @@ elif menu == "🔄 Transferência entre Filiais":
             filial_origem_sel = str_lit.selectbox("🏢 1. Selecione a Filial de Origem:", options=lista_origens)
             
             df_origem_colab = df_transf[df_transf["filial_nome"] == filial_origem_sel].copy()
-            
             str_lit.write(f"Colaboradores ativos na filial **{filial_origem_sel}**: {len(df_origem_colab)}")
             
-            # Prepara dataframe editável com checkbox para seleção múltipla
             df_origem_colab.insert(0, "Selecionar", False)
             df_tabela_exibicao = df_origem_colab[["Selecionar", "matricula", "nome", "cargo"]].rename(
                 columns={"matricula": "Matrícula", "nome": "Nome do Colaborador", "cargo": "Cargo"}
@@ -1121,18 +1145,8 @@ elif menu == "💳 Pedido Saldo Alimentação":
         else:
             c_mes, c_ano = str_lit.columns(2)
             meses_disponiveis = [
-                "Janeiro",
-                "Fevereiro",
-                "Março",
-                "Abril",
-                "Maio",
-                "Junho",
-                "Julho",
-                "Agosto",
-                "Setembro",
-                "Outubro",
-                "Novembro",
-                "Dezembro",
+                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
             ]
             mes_atual_idx = datetime.now().month - 1
             mes_sel = c_mes.selectbox(
@@ -1287,10 +1301,11 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         str_lit.error(f"Erro ao carregar dados salvos: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 10: FOLHA DE PONTO
+# MÓDULO 10: FOLHA DE PONTO (Inteligente por Mês e Dias da Semana)
 # ---------------------------------------------------------
 elif menu == "⏱️ Folha de Ponto":
     str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
+
     conn = sqlite3.connect(DB_FILE)
     try:
         df_ponto = pd.read_sql_query(
@@ -1311,7 +1326,7 @@ elif menu == "⏱️ Folha de Ponto":
         str_lit.info("Nenhum colaborador ativo cadastrado.")
     else:
         colab_ponto = str_lit.selectbox(
-            "Selecione o Colaborador para a Folha de Ponto:",
+            "Selecione o Colaborador:",
             options=df_ponto["Matrícula"]
             + " - "
             + df_ponto["Empregado"]
@@ -1319,36 +1334,118 @@ elif menu == "⏱️ Folha de Ponto":
             + df_ponto["Filial"].fillna("Nenhuma")
             + ")",
         )
-        mes_ponto = str_lit.text_input(
-            "Mês/Ano Referência (Ex: 09/2026):",
-            value=datetime.now().strftime("%m/%Y"),
+        matricula_atual = colab_ponto.split(" - ")[0]
+
+        c_mes_p, c_ano_p = str_lit.columns(2)
+        meses_lista = [
+            "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+            "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+        ]
+        mes_escolhido = c_mes_p.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1)
+        ano_escolhido = c_ano_p.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year)
+        
+        mes_num = meses_lista.index(mes_escolhido) + 1
+        mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
+
+        # Descobre quantidade de dias do mês selecionado
+        if mes_num == 12:
+            proximo_mes = datetime(ano_escolhido + 1, 1, 1)
+        else:
+            proximo_mes = datetime(ano_escolhido, mes_num + 1, 1)
+        ultimo_dia = (proximo_mes - timedelta(days=1)).day
+
+        dias_semana_pt = {
+            0: "Seg", 1: "Ter", 2: "Qua", 3: "Qui", 4: "Sex", 5: "Sáb", 6: "Dom"
+        }
+
+        # Carrega dados salvos anteriormente se existirem
+        conn = sqlite3.connect(DB_FILE)
+        try:
+            df_salvo_ponto = pd.read_sql_query(
+                "SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?",
+                conn, params=(matricula_atual, mes_ano_str)
+            )
+        except Exception:
+            df_salvo_ponto = pd.DataFrame()
+        conn.close()
+
+        dados_anteriores = {}
+        if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"]:
+            try:
+                dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"])
+            except Exception:
+                pass
+
+        # Monta estrutura dos dias do mês
+        lista_linhas_dias = []
+        for dia in range(1, ultimo_dia + 1):
+            data_atual = datetime(ano_escolhido, mes_num, dia)
+            dia_semana_num = data_atual.weekday()
+            nome_dia_sem = dias_semana_pt[dia_semana_num]
+            coluna_nome = f"Dia {dia:02d} ({nome_dia_sem})"
+            
+            valor_salvo = dados_anteriores.get(coluna_nome, "0")
+            lista_linhas_dias.append({
+                "Dia": coluna_nome,
+                "Tipo Dia": "Domingo" if dia_semana_num == 6 else "Útil/Sábado",
+                "Horas": str(valor_salvo)
+            })
+
+        df_dias_tabela = pd.DataFrame(lista_linhas_dias)
+
+        str_lit.markdown(f"### 📋 Lançamento Diário de Horas Extras - {mes_ano_str}")
+        str_lit.write("Preencha a quantidade de horas em cada dia. Você pode usar vírgula, ponto ou dois-pontos (ex: `1,5` ou `01:30`).")
+
+        df_edit_ponto = str_lit.data_editor(
+            df_dias_tabela,
+            column_config={
+                "Dia": str_lit.column_config.TextColumn("Dia do Mês", disabled=True),
+                "Tipo Dia": str_lit.column_config.TextColumn("Tipo", disabled=True),
+                "Horas": str_lit.column_config.TextColumn("Qtd Horas Feitas", required=True)
+            },
+            hide_index=True,
+            use_container_width=True
         )
 
-        c_he1, c_he2 = str_lit.columns(2)
-        total_he_50 = c_he1.number_input(
-            "Total Horas Extras 50% (Horas)", min_value=0.0, value=0.0, step=0.5
-        )
-        total_he_100 = c_he2.number_input(
-            "Total Horas Extras 100% (Horas)",
-            min_value=0.0,
-            value=0.0,
-            step=0.5,
-        )
+        # Cálculo automático de Seg-Sáb (50%) e Domingos (100%)
+        total_he_50_calc = 0.0
+        total_he_100_calc = 0.0
+        dicionario_salvar = {}
 
-        if str_lit.button("💾 Salvar Registro de Ponto"):
-            mat_p = colab_ponto.split(" - ")[0]
+        for _, row in df_edit_ponto.iterrows():
+            dia_str = row["Dia"]
+            qtd_convertida = converter_hora_flexivel(row["Horas"])
+            dicionario_salvar[dia_str] = row["Horas"]
+
+            if "Dom" in dia_str:
+                total_he_100_calc += qtd_convertida
+            else:
+                total_he_50_calc += qtd_convertida
+
+        str_lit.markdown("---")
+        c_res1, c_res2 = str_lit.columns(2)
+        c_res1.metric("Total Horas Extras 50% (Seg a Sáb)", f"{total_he_50_calc:.2f} h")
+        c_res2.metric("Total Horas Extras 100% (Domingos)", f"{total_he_100_calc:.2f} h")
+        str_lit.markdown("---")
+
+        if str_lit.button("💾 Salvar Folha de Ponto Completa", type="primary"):
+            json_dados = json.dumps(dicionario_salvar)
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
+            
+            # Remove registro anterior do mesmo mês/colaborador para atualizar
+            c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
+            
             c.execute(
                 """
-                INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (mat_p, mes_ponto, total_he_50, total_he_100),
+                (matricula_atual, mes_ano_str, total_he_50_calc, total_he_100_calc, json_dados),
             )
             conn.commit()
             conn.close()
-            str_lit.success("Folha de ponto salva com sucesso!")
+            str_lit.success(f"Folha de ponto de {mes_ano_str} salva com sucesso!")
 
 # ---------------------------------------------------------
 # MÓDULO 11: EXPORTAR DADOS
