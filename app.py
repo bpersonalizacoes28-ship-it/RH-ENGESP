@@ -361,7 +361,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL
+# MENU PRINCIPAL (Sem exportação e sem histórico)
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -643,7 +643,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
                 str_lit.error(f"Erro ao processar arquivo: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 4: TRANSFERÊNCIA ENTRE FILIAIS
+# MÓDULO 4: TRANSFERÊNCIA ENTRE FILIAIS (Sem restrição de data)
 # ---------------------------------------------------------
 elif menu == "🔄 Transferência entre Filiais":
     str_lit.title("🔄 Transferência de Colaboradores entre Filiais (Múltiplos)")
@@ -701,6 +701,8 @@ elif menu == "🔄 Transferência entre Filiais":
                 str_lit.warning("Cadastre mais filiais para poder realizar transferências entre unidades diferentes.")
             else:
                 filial_destino = str_lit.selectbox("🏢 2. Selecione a Filial de Destino:", options=lista_dest)
+                
+                # Sem limites de data
                 data_transf = str_lit.date_input(
                     "Data da Transferência",
                     value=date.today(),
@@ -743,7 +745,7 @@ elif menu == "🔄 Transferência entre Filiais":
                         str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 5: COLABORADORES (Com abas de Ativos, Demitidos e Excluídos)
+# MÓDULO 5: COLABORADORES (Com Ativos, Demitidos e Excluídos)
 # ---------------------------------------------------------
 elif menu == "👥 Colaboradores":
     str_lit.title("👥 Gestão de Colaboradores por Filial (Ativos, Demitidos e Excluídos)")
@@ -842,6 +844,7 @@ elif menu == "👥 Colaboradores":
                             "Selecione a Ação:", 
                             ["Demitir Selecionados", "Excluir Selecionados", "Mudar Observação em Lote"]
                         )
+                        # Sem limites de data
                         data_acao = str_lit.date_input("Data da Ação/Demissão/Exclusão", value=date.today(), format="DD/MM/YYYY")
                         obs_lote = str_lit.text_input("Observação (se aplicável):")
                         btn_exec_lote = str_lit.form_submit_button("Executar Ação em Lote")
@@ -999,7 +1002,7 @@ elif menu == "👥 Colaboradores":
                                         """
                                         UPDATE colaboradores 
                                         SET status_colaborador = 'Ativo', data_demissao = NULL, 
-                                            tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Resturação', data_movimentacao = ?
+                                            tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Restauração', data_movimentacao = ?
                                         WHERE matricula = ?
                                     """,
                                         (str(date.today()), mat_e),
