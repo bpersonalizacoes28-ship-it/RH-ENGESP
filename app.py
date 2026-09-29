@@ -202,6 +202,10 @@ def formatar_cnpj(valor):
     return str(valor).strip() if str(valor).strip() else CNPJ_PADRAO
 
 
+MIN_DATE = date(1900, 1, 1)
+MAX_DATE = date(2100, 12, 31)
+
+
 def registrar_historico(matricula, tipo, antigo, novo):
     if str(antigo).strip() != str(novo).strip():
         conn = sqlite3.connect(DB_FILE)
@@ -361,7 +365,7 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL (Todos os 9 módulos essenciais restaurados)
+# MENU PRINCIPAL
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
@@ -373,6 +377,8 @@ lista_modulos = [
     "✏️ Editar Cadastro do Colaborador",
     "💳 Pedido Saldo Alimentação",
     "⏱️ Folha de Ponto",
+    "📤 Exportar Dados",
+    "📜 Histórico de Alterações",
 ]
 
 str_lit.markdown("### 🏢 Sistema de Gestão ADM")
@@ -643,7 +649,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
                 str_lit.error(f"Erro ao processar arquivo: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 4: TRANSFERÊNCIA ENTRE FILIAIS (Sem restrição de data)
+# MÓDULO 4: TRANSFERÊNCIA ENTRE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🔄 Transferência entre Filiais":
     str_lit.title("🔄 Transferência de Colaboradores entre Filiais (Múltiplos)")
@@ -701,11 +707,11 @@ elif menu == "🔄 Transferência entre Filiais":
                 str_lit.warning("Cadastre mais filiais para poder realizar transferências entre unidades diferentes.")
             else:
                 filial_destino = str_lit.selectbox("🏢 2. Selecione a Filial de Destino:", options=lista_dest)
-                
-                # Sem limites de data
                 data_transf = str_lit.date_input(
                     "Data da Transferência",
                     value=date.today(),
+                    min_value=MIN_DATE,
+                    max_value=MAX_DATE,
                     format="DD/MM/YYYY",
                 )
                 
@@ -745,10 +751,10 @@ elif menu == "🔄 Transferência entre Filiais":
                         str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 5: COLABORADORES (Com Ativos, Demitidos e Excluídos)
+# MÓDULO 5: COLABORADORES
 # ---------------------------------------------------------
 elif menu == "👥 Colaboradores":
-    str_lit.title("👥 Gestão de Colaboradores por Filial (Ativos, Demitidos e Excluídos)")
+    str_lit.title("👥 Gestão de Colaboradores por Filial (Ativos e Demitidos)")
     
     conn = sqlite3.connect(DB_FILE)
     try:
@@ -767,11 +773,7 @@ elif menu == "👥 Colaboradores":
             "🏢 Selecione a Filial:", lista_nomes_f
         )
 
-        aba_ativos, aba_demitidos, aba_excluidos = str_lit.tabs([
-            "🟢 Colaboradores Ativos", 
-            "🔴 Colaboradores Demitidos", 
-            "🗑️ Colaboradores Excluídos"
-        ])
+        aba_ativos, aba_demitidos = str_lit.tabs(["🟢 Colaboradores Ativos", "🔴 Colaboradores Demitidos"])
 
         with aba_ativos:
             conn = sqlite3.connect(DB_FILE)
@@ -821,428 +823,845 @@ elif menu == "👥 Colaboradores":
                 df_c_res.insert(0, "Selecionar", False)
 
                 col_sel_todos, _ = str_lit.columns([2, 5])
-                selecionar_todos = col_sel_todos.checkbox("✅ Selecionar Todos os Colaboradores Ativos", key="chk_todos_ativos")
-                
+                selecionar_todos = col_sel_todos.checkbox("✅ Selecionar Todos os Colaboradores Ativos", key="chk_sel_todos_ativos")
+
                 if selecionar_todos:
                     df_c_res["Selecionar"] = True
 
-                df_editado_ativos = str_lit.data_editor(
+                str_lit.write("Marque individualmente ou use a opção acima para selecionar todos e efetivar a demissão em lote:")
+                df_editavel = str_lit.data_editor(
                     df_c_res,
+                    column_config={
+                        "Selecionar": str_lit.column_config.CheckboxColumn("Selecionar", required=True)
+                    },
                     hide_index=True,
                     use_container_width=True,
-                    disabled=["Matrícula", "Empregado", "Cargo", "Tipo", "Subtipo", "Data Movimentação", "Contratação", "Filial", "CPF", "RG", "Data Admissão", "Status", "Observações"]
                 )
 
-                colaboradores_selecionados = df_editado_ativos[df_editado_ativos["Selecionar"] == True]["Matrícula"].tolist()
+                matriculas_para_demitir = df_editavel[
+                    df_editavel["Selecionar"] == True
+                ]["Matrícula"].tolist()
 
-                if colaboradores_selecionados:
-                    str_lit.markdown("---")
-                    str_lit.subheader("🛠️ Ações em Lote para Colaboradores Selecionados")
+                if matriculas_para_demitir:
+                    str_lit.warning(f"⚠️ Você selecionou **{len(matriculas_para_demitir)}** colaborador(es) para colocar como **Demitido**.")
                     
-                    with str_lit.form("form_acao_lote_ativos"):
-                        acao_lote = str_lit.selectbox(
-                            "Selecione a Ação:", 
-                            ["Demitir Selecionados", "Excluir Selecionados", "Mudar Observação em Lote"]
-                        )
-                        # Sem limites de data
-                        data_acao = str_lit.date_input("Data da Ação/Demissão/Exclusão", value=date.today(), format="DD/MM/YYYY")
-                        obs_lote = str_lit.text_input("Observação (se aplicável):")
-                        btn_exec_lote = str_lit.form_submit_button("Executar Ação em Lote")
+                    data_demissao_lote = str_lit.date_input(
+                        "Data da Demissão:",
+                        value=date.today(),
+                        min_value=MIN_DATE,
+                        max_value=MAX_DATE,
+                        format="DD/MM/YYYY",
+                        key="dt_demissao_lote_input"
+                    )
 
-                        if btn_exec_lote:
-                            conn = sqlite3.connect(DB_FILE)
-                            c = conn.cursor()
-                            for mat_l in colaboradores_selecionados:
-                                if acao_lote == "Demitir Selecionados":
-                                    c.execute(
-                                        """
-                                        UPDATE colaboradores 
-                                        SET status_colaborador = 'Demitido', data_demissao = ?, 
-                                            tipo_movimentacao = 'Saída', subtipo_movimentacao = 'Demissão', data_movimentacao = ?
-                                        WHERE matricula = ?
-                                    """,
-                                        (str(data_acao), str(data_acao), mat_l),
-                                    )
-                                    registrar_historico(mat_l, "Status", "Ativo", "Demitido")
-                                elif acao_lote == "Excluir Selecionados":
-                                    c.execute(
-                                        """
-                                        UPDATE colaboradores 
-                                        SET status_colaborador = 'Excluído', data_demissao = ?, 
-                                            tipo_movimentacao = 'Saída', subtipo_movimentacao = 'Exclusão', data_movimentacao = ?
-                                        WHERE matricula = ?
-                                    """,
-                                        (str(data_acao), str(data_acao), mat_l),
-                                    )
-                                    registrar_historico(mat_l, "Status", "Ativo", "Excluído")
-                                elif acao_lote == "Mudar Observação em Lote" and obs_lote:
-                                    c.execute(
-                                        "UPDATE colaboradores SET observacoes = ? WHERE matricula = ?",
-                                        (obs_lote, mat_l),
-                                    )
-                                    registrar_historico(mat_l, "Observações", "Anterior", obs_lote)
-                            conn.commit()
-                            conn.close()
-                            str_lit.success(f"Ação executada com sucesso para {len(colaboradores_selecionados)} colaborador(es)!")
-                            str_lit.rerun()
+                    if str_lit.button("🔴 Efetivar Demissão dos Selecionados", type="primary"):
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        for mat_dem in matriculas_para_demitir:
+                            c.execute(
+                                """
+                                UPDATE colaboradores 
+                                SET status_colaborador = 'Demitido', data_demissao = ?, 
+                                    tipo_movimentacao = 'Saída', subtipo_movimentacao = 'Demissão', data_movimentacao = ?
+                                WHERE matricula = ?
+                            """,
+                                (str(data_demissao_lote), str(data_demissao_lote), mat_dem),
+                            )
+                        conn.commit()
+                        conn.close()
+
+                        for mat_dem in matriculas_para_demitir:
+                            registrar_historico(mat_dem, "Demissão em Lote", "Ativo", "Demitido")
+
+                        str_lit.success(f"{len(matriculas_para_demitir)} colaborador(es) marcado(s) como Demitido(s) e alocado(s) na aba de Demitidos!")
+                        str_lit.rerun()
 
         with aba_demitidos:
             conn = sqlite3.connect(DB_FILE)
             try:
                 if filial_escolhida_colab_mod == "Todas as Filiais":
-                    query_d = """
+                    query_dem = """
                         SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                               f.nome as "Filial", c.data_contratacao as "Data Admissão", c.data_demissao as "Data Demissão",
-                               c.observacoes as "Observações"
+                               f.nome as "Filial", c.cpf as "CPF", c.data_contratacao as "Data Admissão", 
+                               c.data_demissao as "Data Demissão", c.observacoes as "Observações"
                         FROM colaboradores c
                         LEFT JOIN filiais f ON c.filial_id = f.id
                         WHERE c.status_colaborador = 'Demitido'
                         ORDER BY c.nome
                     """
-                    df_d_res = pd.read_sql_query(query_d, conn)
+                    df_dem_res = pd.read_sql_query(query_dem, conn)
                 else:
                     f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
-                    query_d = """
+                    query_dem = """
                         SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                               f.nome as "Filial", c.data_contratacao as "Data Admissão", c.data_demissao as "Data Demissão",
-                               c.observacoes as "Observações"
+                               f.nome as "Filial", c.cpf as "CPF", c.data_contratacao as "Data Admissão", 
+                               c.data_demissao as "Data Demissão", c.observacoes as "Observações"
                         FROM colaboradores c
                         LEFT JOIN filiais f ON c.filial_id = f.id
                         WHERE c.filial_id = ? AND c.status_colaborador = 'Demitido'
                         ORDER BY c.nome
                     """
-                    df_d_res = pd.read_sql_query(query_d, conn, params=(f_id_sel,))
+                    df_dem_res = pd.read_sql_query(query_dem, conn, params=(f_id_sel,))
             except Exception:
-                df_d_res = pd.DataFrame()
+                df_dem_res = pd.DataFrame()
             conn.close()
 
-            if not df_d_res.empty:
-                df_d_res["Data Admissão"] = df_d_res["Data Admissão"].apply(formatar_data_br)
-                df_d_res["Data Demissão"] = df_d_res["Data Demissão"].apply(formatar_data_br)
+            if not df_dem_res.empty:
+                df_dem_res["CPF"] = df_dem_res["CPF"].apply(formatar_cpf)
+                df_dem_res["Data Admissão"] = df_dem_res["Data Admissão"].apply(formatar_data_br)
+                df_dem_res["Data Demissão"] = df_dem_res["Data Demissão"].apply(formatar_data_br)
 
-            str_lit.metric("Total Demitidos Listados", len(df_d_res))
+            str_lit.metric("Total Demitidos Registrados", len(df_dem_res))
             str_lit.markdown("---")
 
-            if df_d_res.empty:
+            if df_dem_res.empty:
                 str_lit.info("Nenhum colaborador demitido encontrado para esta seleção.")
             else:
-                str_lit.dataframe(df_d_res, use_container_width=True)
-
-        with aba_excluidos:
-            conn = sqlite3.connect(DB_FILE)
-            try:
-                if filial_escolhida_colab_mod == "Todas as Filiais":
-                    query_e = """
-                        SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                               f.nome as "Filial", c.data_contratacao as "Data Admissão", c.data_movimentacao as "Data Exclusão",
-                               c.observacoes as "Observações"
-                        FROM colaboradores c
-                        LEFT JOIN filiais f ON c.filial_id = f.id
-                        WHERE c.status_colaborador = 'Excluído'
-                        ORDER BY c.nome
-                    """
-                    df_e_res = pd.read_sql_query(query_e, conn)
-                else:
-                    f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
-                    query_e = """
-                        SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                               f.nome as "Filial", c.data_contratacao as "Data Admissão", c.data_movimentacao as "Data Exclusão",
-                               c.observacoes as "Observações"
-                        FROM colaboradores c
-                        LEFT JOIN filiais f ON c.filial_id = f.id
-                        WHERE c.filial_id = ? AND c.status_colaborador = 'Excluído'
-                        ORDER BY c.nome
-                    """
-                    df_e_res = pd.read_sql_query(query_e, conn, params=(f_id_sel,))
-            except Exception:
-                df_e_res = pd.DataFrame()
-            conn.close()
-
-            if not df_e_res.empty:
-                df_e_res["Data Admissão"] = df_e_res["Data Admissão"].apply(formatar_data_br)
-                df_e_res["Data Exclusão"] = df_e_res["Data Exclusão"].apply(formatar_data_br)
-
-            str_lit.metric("Total Excluídos Listados", len(df_e_res))
-            str_lit.markdown("---")
-
-            if df_e_res.empty:
-                str_lit.info("Nenhum colaborador excluído encontrado para esta seleção.")
-            else:
-                df_e_res.insert(0, "Selecionar", False)
-
-                col_sel_todos_exc, _ = str_lit.columns([2, 5])
-                selecionar_todos_exc = col_sel_todos_exc.checkbox("✅ Selecionar Todos os Excluídos", key="chk_todos_excluidos")
-                
-                if selecionar_todos_exc:
-                    df_e_res["Selecionar"] = True
-
-                df_editado_excluidos = str_lit.data_editor(
-                    df_e_res,
-                    hide_index=True,
-                    use_container_width=True,
-                    disabled=["Matrícula", "Empregado", "Cargo", "Filial", "Data Admissão", "Data Exclusão", "Observações"]
-                )
-
-                colaboradores_excluidos_sel = df_editado_excluidos[df_editado_excluidos["Selecionar"] == True]["Matrícula"].tolist()
-
-                if colaboradores_excluidos_sel:
-                    str_lit.markdown("---")
-                    str_lit.subheader("🛠️ Ações para Colaboradores Excluídos Selecionados")
-                    
-                    with str_lit.form("form_acao_excluidos"):
-                        acao_exc = str_lit.selectbox("Selecione a Ação:", ["Restaurar para Ativo", "Excluir Definitivamente do Banco de Dados"])
-                        btn_exec_exc = str_lit.form_submit_button("Executar Ação nos Excluídos")
-
-                        if btn_exec_exc:
-                            conn = sqlite3.connect(DB_FILE)
-                            c = conn.cursor()
-                            for mat_e in colaboradores_excluidos_sel:
-                                if acao_exc == "Restaurar para Ativo":
-                                    c.execute(
-                                        """
-                                        UPDATE colaboradores 
-                                        SET status_colaborador = 'Ativo', data_demissao = NULL, 
-                                            tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Restauração', data_movimentacao = ?
-                                        WHERE matricula = ?
-                                    """,
-                                        (str(date.today()), mat_e),
-                                    )
-                                    registrar_historico(mat_e, "Status", "Excluído", "Ativo")
-                                elif acao_exc == "Excluir Definitivamente do Banco de Dados":
-                                    c.execute("DELETE FROM colaboradores WHERE matricula = ?", (mat_e,))
-                                    c.execute("DELETE FROM historico_colaboradores WHERE colaborador_matricula = ?", (mat_e,))
-                            conn.commit()
-                            conn.close()
-                            str_lit.success(f"Ação concluída com sucesso para {len(colaboradores_excluidos_sel)} colaborador(es)!")
-                            str_lit.rerun()
+                str_lit.dataframe(df_dem_res, use_container_width=True)
 
 # ---------------------------------------------------------
 # MÓDULO 6: NOVO COLABORADOR / ADMISSÃO
 # ---------------------------------------------------------
 elif menu == "➕ Novo Colaborador / Admissão":
-    str_lit.title("➕ Cadastro Individual de Novo Colaborador")
-    
-    f_map, _ = get_filiais_dict()
-    if not f_map:
-        str_lit.warning("⚠️ Cadastre uma filial primeiro no módulo 'Cadastro de Filiais'.")
+    str_lit.title("➕ Admissão / Movimentação de Empregado")
+    if not filiais_nome_para_id:
+        str_lit.warning(
+            "⚠️ Cadastre pelo menos uma filial antes de adicionar colaboradores."
+        )
     else:
-        with str_lit.form("form_novo_colaborador"):
-            c1, c2 = str_lit.columns(2)
-            with c1:
-                mat_novo = str_lit.text_input("Matrícula *")
-                nome_novo = str_lit.text_input("Nome Completo *")
-                cpf_novo = str_lit.text_input("CPF")
-                rg_novo = str_lit.text_input("RG")
-                cargo_novo = str_lit.text_input("Cargo / Função")
-            with c2:
-                filial_novo = str_lit.selectbox("Filial / Obra *", options=list(f_map.keys()))
-                tipo_contrato = str_lit.selectbox("Tipo de Contratação", options=["CLT", "PJ", "Temporário", "Outros"])
-                # Sem restrição de data
-                dt_admissao = str_lit.date_input("Data de Admissão", value=date.today(), format="DD/MM/YYYY")
-                obs_novo = str_lit.text_input("Observações Iniciais")
+        str_lit.subheader("1. Informações Principais e Movimentação")
+        c_fil, c1, c2 = str_lit.columns(3)
+        filial_nome = c_fil.selectbox(
+            "Filial *", options=list(filiais_nome_para_id.keys())
+        )
+        empregado = c1.text_input("Empregado (Nome Completo) *")
+        matricula = c2.text_input("Matrícula *")
 
-            btn_salvar_novo = str_lit.form_submit_button("💾 Salvar Novo Colaborador")
+        c_t1, c_t2, c_t3 = str_lit.columns(3)
+        tipo_mov = c_t1.selectbox("Tipo *", options=["Entrada", "Saída"])
+        subtipo_mov = c_t2.selectbox(
+            "Subtipo *",
+            options=["Admissão", "Alocação", "Transferência", "Demissão"],
+        )
+        data_mov = c_t3.date_input(
+            "Data da Movimentação *",
+            min_value=MIN_DATE,
+            max_value=MAX_DATE,
+            format="DD/MM/YYYY",
+        )
 
-            if btn_salvar_novo:
-                if not mat_novo or not nome_novo:
-                    str_lit.error("Preencha os campos obrigatórios: Matrícula e Nome Completo.")
-                else:
-                    try:
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        c.execute(
-                            """
-                            INSERT INTO colaboradores (
-                                matricula, nome, cpf, rg, funcao, cnpj_empresa, filial_id, 
-                                data_contratacao, status_colaborador, tipo_contratacao, 
-                                tipo_movimentacao, subtipo_movimentacao, data_movimentacao, observacoes
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Ativo', ?, 'Entrada', 'Admissão', ?, ?)
-                        """,
-                            (
-                                mat_novo.strip(),
-                                nome_novo.strip(),
-                                formatar_cpf(cpf_novo),
-                                rg_novo.strip(),
-                                cargo_novo.strip(),
-                                CNPJ_PADRAO,
-                                f_map[filial_novo],
-                                str(dt_admissao),
-                                tipo_contrato,
-                                str(dt_admissao),
-                                obs_novo.strip(),
-                            ),
-                        )
-                        conn.commit()
-                        conn.close()
-                        str_lit.success(f"Colaborador '{nome_novo}' cadastrado com sucesso!")
-                    except sqlite3.IntegrityError:
-                        str_lit.error(f"Erro: A matrícula '{mat_novo}' já está cadastrada no sistema.")
+        str_lit.subheader("2. Dados Profissionais, Contratação e Documentos")
+        c3, c4, c5 = str_lit.columns(3)
+        cargos_existentes = get_cargos_cadastrados()
+        cargo_sel = c3.selectbox(
+            "Cargo Existente:", ["-- Novo Cargo --"] + cargos_existentes
+        )
+        cargo = (
+            c3.text_input("Digite o Cargo *")
+            if cargo_sel == "-- Novo Cargo --"
+            else cargo_sel
+        )
+
+        data_admissao = c4.date_input(
+            "Data de Admissão *",
+            min_value=MIN_DATE,
+            max_value=MAX_DATE,
+            format="DD/MM/YYYY",
+        )
+        tipo_contratacao = c5.selectbox(
+            "Tipo de Contratação *", options=["CLT", "PJ"]
+        )
+
+        c6, c7 = str_lit.columns(2)
+        cpf = c6.text_input("CPF")
+        rg = c7.text_input("RG")
+
+        cnpj_empresa_input = str_lit.text_input("CNPJ da Empresa", value=CNPJ_PADRAO)
+        observacoes = str_lit.text_area("Observações")
+        status_colab_novo = (
+            "Demitido"
+            if subtipo_mov == "Demissão" or tipo_mov == "Saída"
+            else "Ativo"
+        )
+        data_demissao_novo = (
+            data_mov if status_colab_novo == "Demitido" else None
+        )
+
+        if str_lit.button("💾 Salvar Cadastro Permanentemente"):
+            if not matricula or not empregado:
+                str_lit.error(
+                    "Preencha os campos obrigatórios (Empregado e Matrícula)."
+                )
+            else:
+                cpf_formatado = formatar_cpf(cpf)
+                dt_dem_val = (
+                    str(data_demissao_novo)
+                    if status_colab_novo == "Demitido" and data_demissao_novo
+                    else None
+                )
+                try:
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute(
+                        """
+                        INSERT INTO colaboradores (
+                            matricula, nome, cpf, rg, funcao, filial_id,
+                            data_contratacao, status_colaborador, data_demissao,
+                            tipo_movimentacao, subtipo_movimentacao, data_movimentacao,
+                            observacoes, tipo_contratacao, cnpj_empresa
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        (
+                            matricula,
+                            empregado,
+                            cpf_formatado,
+                            rg,
+                            cargo,
+                            filiais_nome_para_id[filial_nome],
+                            str(data_admissao),
+                            status_colab_novo,
+                            dt_dem_val,
+                            tipo_mov,
+                            subtipo_mov,
+                            str(data_mov),
+                            observacoes,
+                            tipo_contratacao,
+                            formatar_cnpj(cnpj_empresa_input),
+                        ),
+                    )
+                    conn.commit()
+                    conn.close()
+                    registrar_historico(
+                        matricula,
+                        "Nova Movimentação",
+                        "-",
+                        f"Tipo: {tipo_mov} / Subtipo: {subtipo_mov} - Filial {filial_nome}",
+                    )
+                    str_lit.success(
+                        f"Empregado {empregado} cadastrado e salvo com sucesso!"
+                    )
+                except sqlite3.IntegrityError:
+                    str_lit.error(
+                        "Erro: Matrícula já cadastrada no sistema."
+                    )
 
 # ---------------------------------------------------------
 # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
 # ---------------------------------------------------------
 elif menu == "✏️ Editar Cadastro do Colaborador":
-    str_lit.title("✏️ Edição de Dados Cadastrais")
-    
+    str_lit.title("✏️ Editar Cadastro do Colaborador")
+
     conn = sqlite3.connect(DB_FILE)
     try:
-        df_edit = pd.read_sql_query("SELECT matricula, nome FROM colaboradores ORDER BY nome", conn)
+        df_colab_geral = pd.read_sql_query(
+            """
+            SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial
+            FROM colaboradores c
+            LEFT JOIN filiais f ON c.filial_id = f.id
+            ORDER BY c.nome
+        """,
+            conn,
+        )
     except Exception:
-        df_edit = pd.DataFrame()
+        df_colab_geral = pd.DataFrame()
     conn.close()
 
-    if df_edit.empty:
-        str_lit.info("Nenhum colaborador cadastrado para editar.")
+    if df_colab_geral.empty:
+        str_lit.info("Nenhum colaborador cadastrado.")
     else:
-        colabs_opcoes = {f"{row['nome']} (Mat: {row['matricula']})": row['matricula'] for _, row in df_edit.iterrows()}
-        colab_escolhido_str = str_lit.selectbox("🔍 Selecione o Colaborador para Editar:", options=list(colabs_opcoes.keys()))
-        mat_editar = colabs_opcoes[colab_escolhido_str]
+        str_lit.subheader("🔍 Localize o colaborador")
 
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT * FROM colaboradores WHERE matricula = ?", (mat_editar,))
-        coluna_nomes = [description[0] for description in c.description]
-        dados_colab = c.fetchone()
-        conn.close()
+        lista_filiais_edit = ["Todas as Filiais"] + sorted(
+            df_colab_geral["filial"].dropna().unique().tolist()
+        )
+        filial_escolhida_edicao = str_lit.selectbox(
+            "Filtrar por Filial:", options=lista_filiais_edit
+        )
 
-        if dados_colab:
-            dados_dict = dict(zip(coluna_nomes, dados_colab))
-            f_map, _ = get_filiais_dict()
-            
-            with str_lit.form("form_edicao_colab"):
-                e1, e2 = str_lit.columns(2)
-                with e1:
-                    novo_nome = str_lit.text_input("Nome Completo", value=str(dados_dict.get("nome", "")))
-                    novo_cpf = str_lit.text_input("CPF", value=str(dados_dict.get("cpf", "")))
-                    novo_rg = str_lit.text_input("RG", value=str(dados_dict.get("rg", "")))
-                    nova_funcao = str_lit.text_input("Cargo / Função", value=str(dados_dict.get("funcao", "")))
-                with e2:
-                    filial_atual_id = dados_dict.get("filial_id")
-                    filial_nome_atual = [k for k, v in f_map.items() if v == filial_atual_id]
-                    filial_atual_str = filial_nome_atual[0] if filial_nome_atual else list(f_map.keys())[0]
-                    
-                    nova_filial = str_lit.selectbox("Filial", options=list(f_map.keys()), index=list(f_map.keys()).index(filial_atual_str))
-                    novo_status = str_lit.selectbox("Status", options=["Ativo", "Demitido", "Excluído"], index=["Ativo", "Demitido", "Excluído"].index(str(dados_dict.get("status_colaborador", "Ativo"))))
-                    nova_obs = str_lit.text_input("Observações", value=str(dados_dict.get("observacoes", "")))
+        df_edit_filtered = df_colab_geral.copy()
+        if filial_escolhida_edicao != "Todas as Filiais":
+            df_edit_filtered = df_edit_filtered[
+                df_edit_filtered["filial"] == filial_escolhida_edicao
+            ]
 
-                btn_atualizar = str_lit.form_submit_button("💾 Salvar Alterações")
+        if df_edit_filtered.empty:
+            str_lit.warning("Nenhum colaborador encontrado para esta filial.")
+        else:
+            opcoes_colab = (
+                df_edit_filtered["matricula"]
+                + " - "
+                + df_edit_filtered["nome"]
+                + " (Cargo: "
+                + df_edit_filtered["cargo"].fillna("Não informado")
+                + ")"
+            )
+            colab_selecionado = str_lit.selectbox(
+                "Selecione o Colaborador que deseja editar:",
+                options=opcoes_colab,
+            )
 
-                if btn_atualizar:
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    c.execute("""
-                        UPDATE colaboradores 
-                        SET nome = ?, cpf = ?, rg = ?, funcao = ?, filial_id = ?, status_colaborador = ?, observacoes = ?
-                        WHERE matricula = ?
-                    """, (
-                        novo_nome.strip(),
-                        formatar_cpf(novo_cpf),
-                        novo_rg.strip(),
-                        nova_funcao.strip(),
-                        f_map[nova_filial],
-                        novo_status,
-                        nova_obs.strip(),
-                        mat_editar
-                    ))
-                    conn.commit()
-                    conn.close()
-                    str_lit.success("Cadastro atualizado com sucesso!")
-                    str_lit.rerun()
+            if colab_selecionado:
+                matricula_sel = colab_selecionado.split(" - ")[0]
+
+                conn = sqlite3.connect(DB_FILE)
+                try:
+                    df_detalhe = pd.read_sql_query(
+                        "SELECT * FROM colaboradores WHERE matricula = ?",
+                        conn,
+                        params=(matricula_sel,),
+                    )
+                except Exception:
+                    df_detalhe = pd.DataFrame()
+                conn.close()
+
+                if not df_detalhe.empty:
+                    colab_row = df_detalhe.iloc[0]
+                    str_lit.markdown("---")
+                    str_lit.subheader(
+                        f"Editando: {colab_row['nome']} (Mat: {colab_row['matricula']})"
+                    )
+
+                    with str_lit.form("form_edicao_colab"):
+                        e_nome = str_lit.text_input(
+                            "Nome Completo", value=colab_row["nome"]
+                        )
+                        e_cpf = str_lit.text_input(
+                            "CPF", value=str(colab_row["cpf"] or "")
+                        )
+                        e_rg = str_lit.text_input(
+                            "RG", value=str(colab_row["rg"] or "")
+                        )
+                        e_cargo = str_lit.text_input(
+                            "Cargo", value=str(colab_row["funcao"] or "")
+                        )
+                        e_cnpj = str_lit.text_input(
+                            "CNPJ da Empresa", value=str(colab_row["cnpj_empresa"] or CNPJ_PADRAO)
+                        )
+                        e_status = str_lit.selectbox(
+                            "Status",
+                            options=["Ativo", "Demitido"],
+                            index=(
+                                0
+                                if colab_row["status_colaborador"] == "Ativo"
+                                else 1
+                            ),
+                        )
+                        e_obs = str_lit.text_area(
+                            "Observações",
+                            value=str(colab_row["observacoes"] or ""),
+                        )
+
+                        btn_salvar_edicao = str_lit.form_submit_button(
+                            "💾 Salvar Alterações Permanentemente"
+                        )
+
+                        if btn_salvar_edicao:
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            c.execute(
+                                """
+                                UPDATE colaboradores 
+                                SET nome = ?, cpf = ?, rg = ?, funcao = ?, cnpj_empresa = ?, status_colaborador = ?, observacoes = ?
+                                WHERE matricula = ?
+                            """,
+                                (
+                                    e_nome,
+                                    formatar_cpf(e_cpf),
+                                    e_rg,
+                                    e_cargo,
+                                    formatar_cnpj(e_cnpj),
+                                    e_status,
+                                    e_obs,
+                                    matricula_sel,
+                                ),
+                            )
+                            conn.commit()
+                            conn.close()
+                            registrar_historico(
+                                matricula_sel,
+                                "Edição de Cadastro",
+                                colab_row["nome"],
+                                e_nome,
+                            )
+                            str_lit.success(
+                                "Cadastro atualizado e salvo permanentemente!"
+                            )
+                            str_lit.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
-    str_lit.title("💳 Gestão e Pedido de Saldo Alimentação / VA")
-    
-    f_map, _ = get_filiais_dict()
-    if not f_map:
-        str_lit.warning("Cadastre filiais primeiro.")
-    else:
-        filial_va = str_lit.selectbox("Selecione a Filial para o Pedido de VA:", options=list(f_map.keys()))
-        f_id = f_map[filial_va]
+    str_lit.title("💳 Pedido de Saldo Alimentação (VA)")
 
+    aba_pedido, aba_historico_pedidos = str_lit.tabs(
+        ["Novo Pedido / Exportação", "📜 Histórico de Pedidos Realizados"]
+    )
+
+    with aba_pedido:
         conn = sqlite3.connect(DB_FILE)
         try:
             df_va = pd.read_sql_query(
                 """
-                SELECT matricula as "Matrícula", nome as "Empregado", funcao as "Cargo", 
-                       saldo_cartao_alimentacao as "Saldo Atual (R$)", tipo_usuario_va as "Tipo Usuário"
-                FROM colaboradores
-                WHERE filial_id = ? AND status_colaborador = 'Ativo'
-                ORDER BY nome
+                SELECT c.cnpj_empresa as "CNPJ", c.nome as "Nome Completo", c.cpf as "CPF",
+                       f.nome as "Obra", c.premiacao as "Premiação", 
+                       c.mobilidade as "Mobilidade", c.alimentacao as "Alimentação",
+                       c.tipo_usuario_va as "Tags"
+                FROM colaboradores c
+                LEFT JOIN filiais f ON c.filial_id = f.id
+                WHERE c.status_colaborador = 'Ativo'
+                ORDER BY c.nome
             """,
-                conn, params=(f_id,)
+                conn,
             )
         except Exception:
             df_va = pd.DataFrame()
         conn.close()
 
         if df_va.empty:
-            str_lit.info("Nenhum colaborador ativo nesta filial.")
+            str_lit.info("Nenhum colaborador ativo encontrado.")
         else:
-            str_lit.write("Atualize os valores de saldo ou tipo de usuário abaixo e salve:")
-            df_va_editado = str_lit.data_editor(df_va, hide_index=True, use_container_width=True)
+            c_mes, c_ano = str_lit.columns(2)
+            meses_disponiveis = [
+                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+            ]
+            mes_atual_idx = datetime.now().month - 1
+            mes_sel = c_mes.selectbox(
+                "Mês de Referência:",
+                options=meses_disponiveis,
+                index=mes_atual_idx,
+            )
+            ano_atual = datetime.now().year
+            anos_disponiveis = [str(ano) for ano in range(ano_atual - 2, ano_atual + 4)]
+            ano_sel = c_ano.selectbox(
+                "Ano de Referência:",
+                options=anos_disponiveis,
+                index=anos_disponiveis.index(str(ano_atual)),
+            )
 
-            if str_lit.button("💾 Salvar Alterações de Saldo VA"):
+            mes_ano_ref = f"{mes_sel} de {ano_sel}"
+
+            opcoes_f_va = ["Todas as Filiais"] + sorted(
+                df_va["Obra"].dropna().unique().tolist()
+            )
+            f_va_sel = str_lit.selectbox(
+                "Filtrar Obra para Pedido VA:", options=opcoes_f_va
+            )
+
+            df_va_filtered = df_va.copy()
+            if f_va_sel != "Todas as Filiais":
+                df_va_filtered = df_va_filtered[df_va_filtered["Obra"] == f_va_sel]
+
+            str_lit.write(
+                f"**Período Selecionado:** {mes_ano_ref} | **Obra:** {f_va_sel}"
+            )
+            str_lit.write(
+                "Ajuste os valores e tags abaixo se necessário (Ordem: CNPJ, Nome Completo, CPF, Obra, Premiação, Mobilidade, Alimentação, Tags):"
+            )
+
+            df_va_edit = str_lit.data_editor(
+                df_va_filtered, hide_index=True, use_container_width=True
+            )
+
+            if str_lit.button("📥 Gerar e Salvar Pedido VA Permanentemente"):
+                output_va = io.BytesIO()
+
+                df_export = df_va_edit.copy()
+                for col_val in ["Premiação", "Mobilidade", "Alimentação"]:
+                    if col_val in df_export.columns:
+                        df_export[col_val] = pd.to_numeric(
+                            df_export[col_val], errors="coerce"
+                        ).fillna(0.0)
+
+                with pd.ExcelWriter(output_va, engine="openpyxl") as writer:
+                    df_export.to_excel(
+                        writer, index=False, sheet_name="Pedido_VA"
+                    )
+
+                    workbook = writer.book
+                    worksheet = writer.sheets["Pedido_VA"]
+                    for col_idx in [5, 6, 7]:
+                        for row_idx in range(2, len(df_export) + 2):
+                            cell = worksheet.cell(row=row_idx, column=col_idx)
+                            cell.number_format = "#,##0.00"
+
+                dados_json_pedido = df_export.to_json(orient="records")
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
-                for _, row in df_va_editado.iterrows():
-                    c.execute("""
-                        UPDATE colaboradores 
-                        SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
-                        WHERE matricula = ?
-                    """, (row["Saldo Atual (R$)"], row["Tipo Usuário"], row["Matrícula"]))
+                
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS historico_pedidos_va (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        mes_ano TEXT,
+                        obra TEXT,
+                        data_geracao DATETIME,
+                        dados_json TEXT
+                    )
+                """)
+                
+                c.execute(
+                    """
+                    INSERT INTO historico_pedidos_va (mes_ano, obra, data_geracao, dados_json)
+                    VALUES (?, ?, ?, ?)
+                """,
+                    (
+                        mes_ano_ref,
+                        f_va_sel,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        dados_json_pedido,
+                    ),
+                )
                 conn.commit()
                 conn.close()
-                str_lit.success("Saldos de alimentação salvos com sucesso!")
-                str_lit.rerun()
+
+                str_lit.success(
+                    f"Pedido referente a {mes_ano_ref} gerado e salvo com sucesso no histórico permanente!"
+                )
+
+                str_lit.download_button(
+                    label="📥 Baixar Planilha de Pedido VA em Excel",
+                    data=output_va.getvalue(),
+                    file_name=f"pedido_va_{mes_sel}_{ano_sel}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
+    with aba_historico_pedidos:
+        str_lit.subheader("📜 Histórico de Pedidos de Saldo Alimentação Registrados")
+        conn = sqlite3.connect(DB_FILE)
+        try:
+            df_hist_va = pd.read_sql_query(
+                """
+                SELECT id, mes_ano as "Mês/Ano", obra as "Obra/Filial", data_geracao as "Data de Geração", dados_json
+                FROM historico_pedidos_va
+                ORDER BY id DESC
+            """,
+                conn,
+            )
+        except Exception:
+            df_hist_va = pd.DataFrame()
+        conn.close()
+
+        if df_hist_va.empty:
+            str_lit.info("Nenhum pedido de VA registrado até o momento.")
+        else:
+            for _, row_hist in df_hist_va.iterrows():
+                with str_lit.expander(
+                    f"📅 Pedido: {row_hist['Mês/Ano']} | Obra: {row_hist['Obra/Filial']} (Gerado em: {row_hist['Data de Geração']})"
+                ):
+                    try:
+                        df_salvo = pd.read_json(row_hist["dados_json"])
+                        str_lit.dataframe(df_salvo, use_container_width=True)
+
+                        output_hist_item = io.BytesIO()
+                        with pd.ExcelWriter(
+                            output_hist_item, engine="openpyxl"
+                        ) as writer:
+                            df_salvo.to_excel(
+                                writer, index=False, sheet_name="Pedido_VA"
+                            )
+                            worksheet = writer.sheets["Pedido_VA"]
+                            for col_idx in [5, 6, 7]:
+                                for row_idx in range(2, len(df_salvo) + 2):
+                                    cell = worksheet.cell(
+                                        row=row_idx, column=col_idx
+                                    )
+                                    cell.number_format = "#,##0.00"
+
+                        str_lit.download_button(
+                            label=f"📥 Baixar Novamente (ID {row_hist['id']})",
+                            data=output_hist_item.getvalue(),
+                            file_name=f"pedido_va_{row_hist['Mês/Ano'].replace(' ', '_')}_{row_hist['Obra/Filial'].replace(' ', '_')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"dl_hist_{row_hist['id']}",
+                        )
+                    except Exception as e:
+                        str_lit.error(f"Erro ao carregar dados salvos: {e}")
 
 # ---------------------------------------------------------
 # MÓDULO 9: FOLHA DE PONTO
 # ---------------------------------------------------------
-elif menu == "⏱️️ Folha de Ponto":
-    str_lit.title("⏱️ Controle de Horas Extras e Folha de Ponto")
-    
-    f_map, _ = get_filiais_dict()
-    if not f_map:
-        str_lit.warning("Cadastre filiais primeiro.")
+elif menu == "⏱️ Folha de Ponto":
+    str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
+
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        df_ponto = pd.read_sql_query(
+            """
+            SELECT c.matricula as "Matrícula", c.nome as "Empregado", f.nome as "Filial"
+            FROM colaboradores c
+            LEFT JOIN filiais f ON c.filial_id = f.id
+            WHERE c.status_colaborador = 'Ativo'
+            ORDER BY c.nome
+        """,
+            conn,
+        )
+    except Exception:
+        df_ponto = pd.DataFrame()
+    conn.close()
+
+    if df_ponto.empty:
+        str_lit.info("Nenhum colaborador ativo cadastrado.")
     else:
-        filial_ponto = str_lit.selectbox("Selecione a Filial:", options=list(f_map.keys()))
-        f_id = f_map[filial_ponto]
+        lista_filiais_ponto = sorted(df_ponto["Filial"].dropna().unique().tolist())
+        filial_escolhida_ponto = str_lit.selectbox(
+            "🏢 1. Selecione a Filial / Obra:", options=lista_filiais_ponto
+        )
+
+        df_ponto_filtrado = df_ponto[df_ponto["Filial"] == filial_escolhida_ponto]
+
+        if df_ponto_filtrado.empty:
+            str_lit.warning("Nenhum colaborador ativo encontrado nesta filial.")
+        else:
+            colab_ponto = str_lit.selectbox(
+                "👥 2. Selecione o Colaborador:",
+                options=df_ponto_filtrado["Matrícula"]
+                + " - "
+                + df_ponto_filtrado["Empregado"],
+            )
+            matricula_atual = colab_ponto.split(" - ")[0]
+
+            c_mes_p, c_ano_p = str_lit.columns(2)
+            meses_lista = [
+                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+            ]
+            mes_escolhido = c_mes_p.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1)
+            ano_escolhido = c_ano_p.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year)
+            
+            mes_num = meses_lista.index(mes_escolhido) + 1
+            mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
+
+            if mes_num == 12:
+                proximo_mes = datetime(ano_escolhido + 1, 1, 1)
+            else:
+                proximo_mes = datetime(ano_escolhido, mes_num + 1, 1)
+            ultimo_dia = (proximo_mes - timedelta(days=1)).day
+
+            nomes_dias_semana = {
+                0: "Segunda-feira", 1: "Terça-feira", 2: "Quarta-feira",
+                3: "Quinta-feira", 4: "Sexta-feira", 5: "Sábado", 6: "Domingo"
+            }
+
+            feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
+
+            conn = sqlite3.connect(DB_FILE)
+            try:
+                df_salvo_ponto = pd.read_sql_query(
+                    "SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?",
+                    conn, params=(matricula_atual, mes_ano_str)
+                )
+            except Exception:
+                df_salvo_ponto = pd.DataFrame()
+            conn.close()
+
+            dados_anteriores = {}
+            if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"]:
+                try:
+                    dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"])
+                except Exception:
+                    pass
+
+            lista_linhas_dias = []
+            for dia in range(1, ultimo_dia + 1):
+                data_atual = date(int(ano_escolhido), mes_num, dia)
+                dia_semana_num = data_atual.weekday()
+                nome_dia_sem = nomes_dias_semana[dia_semana_num]
+                
+                eh_feriado = data_atual in feriados_do_ano
+                tipo_dia_str = f"Feriado ({nome_dia_sem})" if eh_feriado else nome_dia_sem
+
+                coluna_nome = f"Dia {dia:02d} ({data_atual.strftime('%d/%m')})"
+                valor_salvo = dados_anteriores.get(coluna_nome, "0")
+                
+                lista_linhas_dias.append({
+                    "Dia": coluna_nome,
+                    "Tipo": tipo_dia_str,
+                    "Horas": str(valor_salvo)
+                })
+
+            df_dias_tabela = pd.DataFrame(lista_linhas_dias)
+
+            str_lit.markdown(f"### 📋 Lançamento Diário de Horas Extras - {mes_ano_str}")
+            str_lit.write("Preencha a quantidade de horas em cada dia. Use vírgula, ponto ou dois-pontos (ex: `1,5` ou `01:30`).")
+            str_lit.write("ℹ️ **Regra:** Segunda a Sexta-feira (e Sábados) somam em **50%**. Domingos e Feriados Nacionais somam em **100%**.")
+
+            df_edit_ponto = str_lit.data_editor(
+                df_dias_tabela,
+                column_config={
+                    "Dia": str_lit.column_config.TextColumn("Data / Dia", disabled=True),
+                    "Tipo": str_lit.column_config.TextColumn("Tipo (Dia da Semana / Feriado)", disabled=True),
+                    "Horas": str_lit.column_config.TextColumn("Qtd Horas Feitas", required=True)
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+
+            # CÁLCULO DA SOMATÓRIA EM TEMPO REAL ANTES DE SALVAR
+            total_he_50_calc = 0.0
+            total_he_100_calc = 0.0
+            dicionario_salvar = {}
+
+            for _, row in df_edit_ponto.iterrows():
+                dia_str = row["Dia"]
+                tipo_str = row["Tipo"]
+                qtd_convertida = converter_hora_flexivel(row["Horas"])
+                dicionario_salvar[dia_str] = row["Horas"]
+
+                if "Domingo" in tipo_str or "Feriado" in tipo_str:
+                    total_he_100_calc += qtd_convertida
+                else:
+                    total_he_50_calc += qtd_convertida
+
+            str_lit.markdown("---")
+            str_lit.markdown("#### 📊 Prévia dos Totais Calculados:")
+            c_res1, c_res2 = str_lit.columns(2)
+            c_res1.metric("Total Horas Extras 50% (Seg a Sex / Sáb)", f"{total_he_50_calc:.2f} h")
+            c_res2.metric("Total Horas Extras 100% (Domingos e Feriados)", f"{total_he_100_calc:.2f} h")
+            str_lit.markdown("---")
+
+            if str_lit.button("💾 Salvar Folha de Ponto Permanentemente", type="primary"):
+                json_dados = json.dumps(dicionario_salvar)
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                
+                c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
+                c.execute(
+                    """
+                    INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+                    (matricula_atual, mes_ano_str, total_he_50_calc, total_he_100_calc, json_dados),
+                )
+
+                c.execute(
+                    """
+                    UPDATE colaboradores 
+                    SET he_50 = ?, he_100 = ?
+                    WHERE matricula = ?
+                """,
+                    (total_he_50_calc, total_he_100_calc, matricula_atual)
+                )
+
+                conn.commit()
+                conn.close()
+                str_lit.success(f"Folha de ponto de {mes_ano_str} e os saldos de HE do colaborador salvos com sucesso no banco de dados!")
+
+# ---------------------------------------------------------
+# MÓDULO 10: EXPORTAR DADOS
+# ---------------------------------------------------------
+elif menu == "📤 Exportar Dados":
+    str_lit.title("📤 Central de Exportação de Dados")
+
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        df_exp_base = pd.read_sql_query(
+            """
+            SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
+                   c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
+                   c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
+                   f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
+                   c.status_colaborador as "Status", c.observacoes as "Observações"
+            FROM colaboradores c
+            LEFT JOIN filiais f ON c.filial_id = f.id
+            ORDER BY c.nome
+        """,
+            conn,
+        )
+    except Exception:
+        df_exp_base = pd.DataFrame()
+    conn.close()
+
+    if df_exp_base.empty:
+        str_lit.info("Nenhum dado disponível para exportação.")
+    else:
+        lista_exp_filial = ["Todas as Filiais"] + sorted(
+            df_exp_base["Filial"].dropna().unique().tolist()
+        )
+        filial_escolhida_export = str_lit.selectbox(
+            "🏢 Selecione a Filial para Exportação:", lista_exp_filial
+        )
+
+        df_para_exportar = df_exp_base.copy()
+        if filial_escolhida_export != "Todas as Filiais":
+            df_para_exportar = df_para_exportar[
+                df_para_exportar["Filial"] == filial_escolhida_export
+            ]
+
+        str_lit.write(
+            f"Registros selecionados para exportação: {len(df_para_exportar)}"
+        )
+
+        output_geral = io.BytesIO()
+        with pd.ExcelWriter(output_geral, engine="openpyxl") as writer:
+            df_para_exportar.to_excel(
+                writer, index=False, sheet_name="Dados_ENGESP"
+            )
+
+        str_lit.download_button(
+            label="📥 Baixar Dados Filtrados em Excel (.xlsx)",
+            data=output_geral.getvalue(),
+            file_name=f"exportacao_dados_{filial_escolhida_export.replace(' ', '_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+# ---------------------------------------------------------
+# MÓDULO 11: HISTÓRICO DE ALTERAÇÕES (Organizado por Filial)
+# ---------------------------------------------------------
+elif menu == "📜 Histórico de Alterações":
+    str_lit.title("📜 Histórico de Alterações e Movimentações por Filial")
+
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        df_filiais_hist = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
+    except Exception:
+        df_filiais_hist = pd.DataFrame()
+    conn.close()
+
+    if df_filiais_hist.empty:
+        str_lit.info("Nenhuma filial cadastrada.")
+    else:
+        lista_nomes_f_hist = ["Todas as Filiais"] + df_filiais_hist["nome"].tolist()
+        filial_escolhida_hist = str_lit.selectbox(
+            "🏢 Selecione a Filial para visualizar o histórico de alterações:", lista_nomes_f_hist
+        )
 
         conn = sqlite3.connect(DB_FILE)
         try:
-            df_ponto = pd.read_sql_query(
+            if filial_escolhida_hist == "Todas as Filiais":
+                query_hist = """
+                    SELECT h.colaborador_matricula as "Matrícula", c.nome as "Empregado", 
+                           f.nome as "Filial", h.tipo_alteracao as "Tipo de Alteração", 
+                           h.valor_antigo as "Valor Antigo", h.valor_novo as "Valor Novo", 
+                           h.data_registro as "Data Registro"
+                    FROM historico_colaboradores h
+                    LEFT JOIN colaboradores c ON h.colaborador_matricula = c.matricula
+                    LEFT JOIN filiais f ON h.filial_id = f.id
+                    ORDER BY h.id DESC
                 """
-                SELECT matricula as "Matrícula", nome as "Empregado", funcao as "Cargo", 
-                       he_50 as "HE 50% (Horas)", he_100 as "HE 100% (Horas)"
-                FROM colaboradores
-                WHERE filial_id = ? AND status_colaborador = 'Ativo'
-                ORDER BY nome
-            """,
-                conn, params=(f_id,)
-            )
+                df_hist = pd.read_sql_query(query_hist, conn)
+            else:
+                f_id_sel_hist = filiais_nome_para_id[filial_escolhida_hist]
+                query_hist = """
+                    SELECT h.colaborador_matricula as "Matrícula", c.nome as "Empregado", 
+                           f.nome as "Filial", h.tipo_alteracao as "Tipo de Alteração", 
+                           h.valor_antigo as "Valor Antigo", h.valor_novo as "Valor Novo", 
+                           h.data_registro as "Data Registro"
+                    FROM historico_colaboradores h
+                    LEFT JOIN colaboradores c ON h.colaborador_matricula = c.matricula
+                    LEFT JOIN filiais f ON h.filial_id = f.id
+                    WHERE h.filial_id = ?
+                    ORDER BY h.id DESC
+                """
+                df_hist = pd.read_sql_query(query_hist, conn, params=(f_id_sel_hist,))
         except Exception:
-            df_ponto = pd.DataFrame()
+            df_hist = pd.DataFrame()
         conn.close()
 
-        if df_ponto.empty:
-            str_lit.info("Nenhum colaborador ativo encontrado nesta filial.")
-        else:
-            str_lit.write("Insira ou ajuste as horas extras (50% e 100%) para cada colaborador:")
-            df_ponto_editado = str_lit.data_editor(df_ponto, hide_index=True, use_container_width=True)
+        str_lit.metric("Total de Registros no Histórico", len(df_hist))
+        str_lit.markdown("---")
 
-            if str_lit.button("💾 Salvar Apontamento de Ponto"):
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                for _, row in df_ponto_editado.iterrows():
-                    c.execute("""
-                        UPDATE colaboradores 
-                        SET he_50 = ?, he_100 = ?
-                        WHERE matricula = ?
-                    """, (row["HE 50% (Horas)"], row["HE 100% (Horas)"], row["Matrícula"]))
-                conn.commit()
-                conn.close()
-                str_lit.success("Apontamentos de ponto salvos com sucesso!")
-                str_lit.rerun()
+        if df_hist.empty:
+            str_lit.info("Nenhum histórico registrado para esta filial.")
+        else:
+            str_lit.dataframe(df_hist, use_container_width=True)
