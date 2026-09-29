@@ -265,7 +265,6 @@ def converter_hora_flexivel(valor):
     if not val_str or val_str in ["0", "0.0", "None", "nan"]:
         return 0.0
 
-    # Se contém dois-pontos (ex: 01:30 -> 1 hora e 30 min = 1.5)
     if ":" in val_str:
         try:
             partes = val_str.split(":")
@@ -275,12 +274,51 @@ def converter_hora_flexivel(valor):
         except Exception:
             return 0.0
 
-    # Substitui vírgula por ponto para conversão float padrão
     val_str = val_str.replace(",", ".")
     try:
         return float(val_str)
     except Exception:
         return 0.0
+
+
+def obter_feriados_nacionais(ano):
+    """Retorna um conjunto (set) com as datas de feriados nacionais fixos e móveis para o ano informado."""
+    feriados = {
+        date(ano, 1, 1),   # Confraternização Universal
+        date(ano, 4, 21),  # Tiradentes
+        date(ano, 5, 1),   # Dia do Trabalho
+        date(ano, 9, 7),   # Independência do Brasil
+        date(ano, 10, 12), # Nossa Senhora Aparecida
+        date(ano, 11, 2),  # Finados
+        date(ano, 11, 15), # Proclamação da República
+        date(ano, 11, 20), # Consciência Negra
+        date(ano, 12, 25), # Natal
+    }
+    
+    # Cálculo aproximado da Páscoa (Algoritmo de Meeus/Jones/Butcher) para Corpus Christi e Sexta-feira Santa
+    a = ano % 19
+    b = ano // 100
+    c = ano % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    mes_pascoa = (h + l - 7 * m + 114) // 31
+    dia_pascoa = ((h + l - 7 * m + 114) % 31) + 1
+    
+    data_pascoa = date(ano, mes_pascoa, dia_pascoa)
+    sexta_santa = data_pascoa - timedelta(days=2)
+    corpus_christi = data_pascoa + timedelta(days=60)
+    
+    feriados.add(sexta_santa)
+    feriados.add(corpus_christi)
+    
+    return feriados
 
 
 def get_filiais_dict():
@@ -1301,7 +1339,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         str_lit.error(f"Erro ao carregar dados salvos: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 10: FOLHA DE PONTO (Inteligente por Mês e Dias da Semana)
+# MÓDULO 10: FOLHA DE PONTO (Com Feriados Automáticos e Dias da Semana na Coluna Tipo)
 # ---------------------------------------------------------
 elif menu == "⏱️ Folha de Ponto":
     str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
@@ -1354,9 +1392,18 @@ elif menu == "⏱️ Folha de Ponto":
             proximo_mes = datetime(ano_escolhido, mes_num + 1, 1)
         ultimo_dia = (proximo_mes - timedelta(days=1)).day
 
-        dias_semana_pt = {
-            0: "Seg", 1: "Ter", 2: "Qua", 3: "Qui", 4: "Sex", 5: "Sáb", 6: "Dom"
+        nomes_dias_semana = {
+            0: "Segunda-feira",
+            1: "Terça-feira",
+            2: "Quarta-feira",
+            3: "Quinta-feira",
+            4: "Sexta-feira",
+            5: "Sábado",
+            6: "Domingo"
         }
+
+        # Busca conjunto de feriados nacionais para o ano escolhido
+        feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
 
         # Carrega dados salvos anteriormente se existirem
         conn = sqlite3.connect(DB_FILE)
@@ -1379,53 +1426,65 @@ elif menu == "⏱️ Folha de Ponto":
         # Monta estrutura dos dias do mês
         lista_linhas_dias = []
         for dia in range(1, ultimo_dia + 1):
-            data_atual = datetime(ano_escolhido, mes_num, dia)
+            data_atual = date(int(ano_escolhido), mes_num, dia)
             dia_semana_num = data_atual.weekday()
-            nome_dia_sem = dias_semana_pt[dia_semana_num]
-            coluna_nome = f"Dia {dia:02d} ({nome_dia_sem})"
+            nome_dia_sem = nomes_dias_semana[dia_semana_num]
             
+            # Identifica se é feriado nacional ou domingo
+            eh_feriado = data_atual in feriados_do_ano
+            
+            if eh_feriado:
+                tipo_dia_str = f"Feriado ({nome_dia_sem})"
+            else:
+                tipo_dia_str = nome_dia_sem
+
+            coluna_nome = f"Dia {dia:02d} ({data_atual.strftime('%d/%m')})"
             valor_salvo = dados_anteriores.get(coluna_nome, "0")
+            
             lista_linhas_dias.append({
                 "Dia": coluna_nome,
-                "Tipo Dia": "Domingo" if dia_semana_num == 6 else "Útil/Sábado",
+                "Tipo": tipo_dia_str,
                 "Horas": str(valor_salvo)
             })
 
         df_dias_tabela = pd.DataFrame(lista_linhas_dias)
 
         str_lit.markdown(f"### 📋 Lançamento Diário de Horas Extras - {mes_ano_str}")
-        str_lit.write("Preencha a quantidade de horas em cada dia. Você pode usar vírgula, ponto ou dois-pontos (ex: `1,5` ou `01:30`).")
+        str_lit.write("Preencha a quantidade de horas em cada dia. Use vírgula, ponto ou dois-pontos (ex: `1,5` ou `01:30`).")
+        str_lit.write("ℹ️ **Regra:** Segunda a Sábado (úteis) somam em **50%**. Domingos e Feriados Nacionais somam em **100%**.")
 
         df_edit_ponto = str_lit.data_editor(
             df_dias_tabela,
             column_config={
-                "Dia": str_lit.column_config.TextColumn("Dia do Mês", disabled=True),
-                "Tipo Dia": str_lit.column_config.TextColumn("Tipo", disabled=True),
+                "Dia": str_lit.column_config.TextColumn("Data / Dia", disabled=True),
+                "Tipo": str_lit.column_config.TextColumn("Tipo (Dia da Semana / Feriado)", disabled=True),
                 "Horas": str_lit.column_config.TextColumn("Qtd Horas Feitas", required=True)
             },
             hide_index=True,
             use_container_width=True
         )
 
-        # Cálculo automático de Seg-Sáb (50%) e Domingos (100%)
+        # Cálculo automático: Seg-Sáb útil = 50% | Domingo ou Feriado = 100%
         total_he_50_calc = 0.0
         total_he_100_calc = 0.0
         dicionario_salvar = {}
 
         for _, row in df_edit_ponto.iterrows():
             dia_str = row["Dia"]
+            tipo_str = row["Tipo"]
             qtd_convertida = converter_hora_flexivel(row["Horas"])
             dicionario_salvar[dia_str] = row["Horas"]
 
-            if "Dom" in dia_str:
+            # Se for Domingo ou Feriado, vai para 100%. Caso contrário (Seg a Sáb), vai para 50%.
+            if "Domingo" in tipo_str or "Feriado" in tipo_str:
                 total_he_100_calc += qtd_convertida
             else:
                 total_he_50_calc += qtd_convertida
 
         str_lit.markdown("---")
         c_res1, c_res2 = str_lit.columns(2)
-        c_res1.metric("Total Horas Extras 50% (Seg a Sáb)", f"{total_he_50_calc:.2f} h")
-        c_res2.metric("Total Horas Extras 100% (Domingos)", f"{total_he_100_calc:.2f} h")
+        c_res1.metric("Total Horas Extras 50% (Seg a Sáb úteis)", f"{total_he_50_calc:.2f} h")
+        c_res2.metric("Total Horas Extras 100% (Domingos e Feriados)", f"{total_he_100_calc:.2f} h")
         str_lit.markdown("---")
 
         if str_lit.button("💾 Salvar Folha de Ponto Completa", type="primary"):
