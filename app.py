@@ -340,13 +340,12 @@ def get_cargos_cadastrados():
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
 # ---------------------------------------------------------
-# MENU PRINCIPAL
+# MENU PRINCIPAL (Módulo Filiais Removido)
 # ---------------------------------------------------------
 lista_modulos = [
     "📊 Dashboard / Consulta",
     "🏢 Cadastro de Filiais",
     "📥 Importar Colaboradores por Filial",
-    "🏢 Filiais",
     "🔄 Transferência entre Filiais",
     "👥 Colaboradores",
     "➕ Novo Colaborador / Admissão",
@@ -585,109 +584,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
                 str_lit.error(f"Erro ao processar arquivo: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 4: FILIAIS (Consulta Dinâmica e Atualizada)
-# ---------------------------------------------------------
-elif menu == "🏢 Filiais":
-    str_lit.title("🏢 Gestão e Consulta por Filial")
-    conn = sqlite3.connect(DB_FILE)
-    try:
-        df_filiais_list = pd.read_sql_query(
-            "SELECT id, nome, cnpj FROM filiais ORDER BY nome", conn
-        )
-    except Exception:
-        df_filiais_list = pd.DataFrame()
-    conn.close()
-
-    if df_filiais_list.empty:
-        str_lit.warning("⚠️ Nenhuma filial cadastrada no sistema.")
-    else:
-        nomes_filiais = df_filiais_list["nome"].tolist()
-        filial_selecionada_detalhe = str_lit.selectbox(
-            "🏢 **Selecione a Filial para Consulta:**", nomes_filiais
-        )
-        filial_row = df_filiais_list[
-            df_filiais_list["nome"] == filial_selecionada_detalhe
-        ].iloc[0]
-        filial_id_atual = filial_row["id"]
-        cnpj_filial_atual = (
-            formatar_cnpj(filial_row["cnpj"])
-            if filial_row["cnpj"]
-            else CNPJ_PADRAO
-        )
-
-        str_lit.markdown(
-            f"### 📍 Unidade: {filial_selecionada_detalhe} (CNPJ: {cnpj_filial_atual})"
-        )
-
-        # Consulta rigorosa atualizada com base exclusivamente na filial selecionada
-        conn = sqlite3.connect(DB_FILE)
-        try:
-            df_colab_filial = pd.read_sql_query(
-                """
-                SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                       c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-                       c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-                       c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-                       c.status_colaborador as "Status", c.observacoes as "Observações"
-                FROM colaboradores c
-                WHERE c.filial_id = ?
-                ORDER BY c.nome
-            """,
-                conn,
-                params=(filial_id_atual,),
-            )
-        except Exception:
-            df_colab_filial = pd.DataFrame()
-        conn.close()
-
-        if not df_colab_filial.empty:
-            df_colab_filial["CPF"] = df_colab_filial["CPF"].apply(formatar_cpf)
-            df_colab_filial["Data Admissão"] = df_colab_filial[
-                "Data Admissão"
-            ].apply(formatar_data_br)
-            df_colab_filial["Data Movimentação"] = df_colab_filial[
-                "Data Movimentação"
-            ].apply(formatar_data_br)
-
-        col_m1, col_m2, col_m3 = str_lit.columns(3)
-        col_m1.metric("Total de Colaboradores", len(df_colab_filial))
-        ativos_filial = (
-            len(df_colab_filial[df_colab_filial["Status"] == "Ativo"])
-            if not df_colab_filial.empty
-            else 0
-        )
-        col_m2.metric("Ativos", ativos_filial)
-        demitidos_filial = (
-            len(df_colab_filial[df_colab_filial["Status"] == "Demitido"])
-            if not df_colab_filial.empty
-            else 0
-        )
-        col_m3.metric("Demitidos", demitidos_filial)
-
-        str_lit.markdown("---")
-        str_lit.subheader(
-            f"📋 Relação Atualizada de Colaboradores - {filial_selecionada_detalhe}"
-        )
-        if df_colab_filial.empty:
-            str_lit.info("Nenhum colaborador vinculado a esta filial no momento.")
-        else:
-            str_lit.dataframe(df_colab_filial, use_container_width=True)
-            output_filial = io.BytesIO()
-            with pd.ExcelWriter(output_filial, engine="openpyxl") as writer:
-                df_colab_filial.to_excel(
-                    writer,
-                    index=False,
-                    sheet_name=filial_selecionada_detalhe[:30],
-                )
-            str_lit.download_button(
-                label=f"📥 Baixar Relatório da Filial ({filial_selecionada_detalhe}) em Excel",
-                data=output_filial.getvalue(),
-                file_name=f"relatorio_filial_{filial_selecionada_detalhe.replace(' ', '_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-# ---------------------------------------------------------
-# MÓDULO 5: TRANSFERÊNCIA ENTRE FILIAIS
+# MÓDULO 4: TRANSFERÊNCIA ENTRE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🔄 Transferência entre Filiais":
     str_lit.title("🔄 Transferência de Colaboradores entre Filiais (Múltiplos)")
@@ -789,7 +686,7 @@ elif menu == "🔄 Transferência entre Filiais":
                         str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 6: COLABORADORES
+# MÓDULO 5: COLABORADORES
 # ---------------------------------------------------------
 elif menu == "👥 Colaboradores":
     str_lit.title("👥 Consulta de Colaboradores por Filial")
@@ -899,7 +796,7 @@ elif menu == "👥 Colaboradores":
                     str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 7: NOVO COLABORADOR / ADMISSÃO
+# MÓDULO 6: NOVO COLABORADOR / ADMISSÃO
 # ---------------------------------------------------------
 elif menu == "➕ Novo Colaborador / Admissão":
     str_lit.title("➕ Admissão / Movimentação de Empregado")
@@ -1025,7 +922,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                     )
 
 # ---------------------------------------------------------
-# MÓDULO 8: EDITAR CADASTRO DO COLABORADOR
+# MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
 # ---------------------------------------------------------
 elif menu == "✏️ Editar Cadastro do Colaborador":
     str_lit.title("✏️ Editar Cadastro do Colaborador")
@@ -1168,7 +1065,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO
+# MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
     str_lit.title("💳 Pedido de Saldo Alimentação (VA)")
@@ -1358,7 +1255,7 @@ elif menu == "💳 Pedido Saldo Alimentação":
                         str_lit.error(f"Erro ao carregar dados salvos: {e}")
 
 # ---------------------------------------------------------
-# MÓDULO 10: FOLHA DE PONTO
+# MÓDULO 9: FOLHA DE PONTO
 # ---------------------------------------------------------
 elif menu == "⏱️ Folha de Ponto":
     str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
@@ -1515,7 +1412,7 @@ elif menu == "⏱️ Folha de Ponto":
                 str_lit.success(f"Folha de ponto de {mes_ano_str} salva com sucesso!")
 
 # ---------------------------------------------------------
-# MÓDULO 11: EXPORTAR DADOS
+# MÓDULO 10: EXPORTAR DADOS
 # ---------------------------------------------------------
 elif menu == "📤 Exportar Dados":
     str_lit.title("📤 Central de Exportação de Dados")
@@ -1573,7 +1470,7 @@ elif menu == "📤 Exportar Dados":
         )
 
 # ---------------------------------------------------------
-# MÓDULO 12: HISTÓRICO DE ALTERAÇÕES
+# MÓDULO 11: HISTÓRICO DE ALTERAÇÕES
 # ---------------------------------------------------------
 elif menu == "📜 Histórico de Alterações":
     str_lit.title("📜 Histórico de Alterações e Movimentações")
