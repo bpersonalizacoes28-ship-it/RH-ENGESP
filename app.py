@@ -48,6 +48,7 @@ str_lit.markdown(
 )
 
 DB_FILE = "gestao_empresa.db"
+CNPJ_PADRAO = "37.608.361/0001-25"
 
 
 # ---------------------------------------------------------
@@ -57,7 +58,6 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # Criação de todas as tabelas essenciais
     c.execute("""
         CREATE TABLE IF NOT EXISTS filiais (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,7 +135,6 @@ def init_db():
         )
     """)
 
-    # Tabela principal corrigida para evitar qualquer erro de tabela ausente
     c.execute("""
         CREATE TABLE IF NOT EXISTS historico_pedidos_va (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,11 +176,11 @@ def formatar_cpf(valor):
 
 def formatar_cnpj(valor):
     if not valor or pd.isna(valor):
-        return ""
+        return CNPJ_PADRAO
     nums = re.sub(r"\D", "", str(valor))
     if len(nums) == 14:
         return f"{nums[:2]}.{nums[2:5]}.{nums[5:8]}/{nums[8:12]}-{nums[12:]}"
-    return str(valor).strip()
+    return str(valor).strip() if str(valor).strip() else CNPJ_PADRAO
 
 
 MIN_DATE = date(1900, 1, 1)
@@ -397,13 +396,13 @@ if menu == "📊 Dashboard / Consulta":
         str_lit.dataframe(df_filtered, use_container_width=True)
 
 # ---------------------------------------------------------
-# MÓDULO 2: CADASTRO DE FILIAIS
+# MÓDULO 2: CADASTRO DE FILIAIS (Com CNPJ Padrão Pré-preenchido)
 # ---------------------------------------------------------
 elif menu == "🏢 Cadastro de Filiais":
     str_lit.title("🏢 Cadastro de Novas Filiais")
     with str_lit.form("form_nova_filial"):
         nome_f = str_lit.text_input("Nome da Filial / Obra *")
-        cnpj_f = str_lit.text_input("CNPJ da Filial")
+        cnpj_f = str_lit.text_input("CNPJ da Filial", value=CNPJ_PADRAO)
         btn_cad_fil = str_lit.form_submit_button("Cadastrar Filial")
 
         if btn_cad_fil:
@@ -479,8 +478,8 @@ elif menu == "📥 Importar Colaboradores por Filial":
                             try:
                                 c.execute(
                                     """
-                                    INSERT INTO colaboradores (matricula, nome, cpf, rg, funcao, filial_id, status_colaborador, tipo_contratacao)
-                                    VALUES (?, ?, ?, ?, ?, ?, 'Ativo', 'CLT')
+                                    INSERT INTO colaboradores (matricula, nome, cpf, rg, funcao, cnpj_empresa, filial_id, status_colaborador, tipo_contratacao)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo', 'CLT')
                                 """,
                                     (
                                         mat,
@@ -488,6 +487,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
                                         str(r.get("CPF", "")),
                                         str(r.get("RG", "")),
                                         str(r.get("Cargo", r.get("funcao", ""))),
+                                        CNPJ_PADRAO,
                                         filiais_nome_para_id[filial_imp],
                                     ),
                                 )
@@ -530,7 +530,7 @@ elif menu == "🏢 Filiais":
         cnpj_filial_atual = (
             formatar_cnpj(filial_row["cnpj"])
             if filial_row["cnpj"]
-            else "Não Informado"
+            else CNPJ_PADRAO
         )
 
         str_lit.markdown(
@@ -604,15 +604,16 @@ elif menu == "🏢 Filiais":
             )
 
 # ---------------------------------------------------------
-# MÓDULO 5: TRANSFERÊNCIA ENTRE FILIAIS
+# MÓDULO 5: TRANSFERÊNCIA ENTRE FILIAIS (Em Lote / Múltiplos Colaboradores)
 # ---------------------------------------------------------
 elif menu == "🔄 Transferência entre Filiais":
-    str_lit.title("🔄 Transferência de Colaboradores entre Filiais")
+    str_lit.title("🔄 Transferência de Colaboradores entre Filiais (Múltiplos)")
+    
     conn = sqlite3.connect(DB_FILE)
     try:
         df_transf = pd.read_sql_query(
             """
-            SELECT c.matricula, c.nome, c.filial_id, f.nome as filial_nome
+            SELECT c.matricula, c.nome, c.funcao as cargo, c.filial_id, f.nome as filial_nome
             FROM colaboradores c
             LEFT JOIN filiais f ON c.filial_id = f.id
             WHERE c.status_colaborador = 'Ativo'
@@ -624,60 +625,87 @@ elif menu == "🔄 Transferência entre Filiais":
         df_transf = pd.DataFrame()
     conn.close()
 
-    if df_transf.empty:
-        str_lit.info("Nenhum colaborador ativo disponível para transferência.")
+    if df_transf.empty or filiais_nome_para_id is None:
+        str_lit.info("Nenhum colaborador ativo disponível para transferência ou filiais insuficientes.")
     else:
-        colab_opts = (
-            df_transf["matricula"]
-            + " - "
-            + df_transf["nome"]
-            + " (Filial Atual: "
-            + df_transf["filial_nome"].fillna("Nenhuma")
-            + ")"
-        )
-        colab_escolhido = str_lit.selectbox(
-            "Selecione o Colaborador:", options=colab_opts
-        )
-
-        lista_dest = list(filiais_nome_para_id.keys())
-        filial_destino = str_lit.selectbox(
-            "Selecione a Filial de Destino:", options=lista_dest
-        )
-        data_transf = str_lit.date_input(
-            "Data da Transferência",
-            value=date.today(),
-            min_value=MIN_DATE,
-            max_value=MAX_DATE,
-            format="DD/MM/YYYY",
-        )
-
-        if str_lit.button("🔄 Efetivar Transferência"):
-            mat_t = colab_escolhido.split(" - ")[0]
-            nova_filial_id = filiais_nome_para_id[filial_destino]
-
-            conn = sqlite3.connect(DB_FILE)
-            c = conn.cursor()
-            c.execute(
-                """
-                UPDATE colaboradores
-                SET filial_id = ?, tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Transferência', data_movimentacao = ?
-                WHERE matricula = ?
-            """,
-                (nova_filial_id, str(data_transf), mat_t),
+        lista_origens = sorted(df_transf["filial_nome"].dropna().unique().tolist())
+        if not lista_origens:
+            str_lit.warning("Nenhuma filial de origem encontrada com colaboradores ativos.")
+        else:
+            filial_origem_sel = str_lit.selectbox("🏢 1. Selecione a Filial de Origem:", options=lista_origens)
+            
+            df_origem_colab = df_transf[df_transf["filial_nome"] == filial_origem_sel].copy()
+            
+            str_lit.write(f"Colaboradores ativos na filial **{filial_origem_sel}**: {len(df_origem_colab)}")
+            
+            # Prepara dataframe editável com checkbox para seleção múltipla
+            df_origem_colab.insert(0, "Selecionar", False)
+            df_tabela_exibicao = df_origem_colab[["Selecionar", "matricula", "nome", "cargo"]].rename(
+                columns={"matricula": "Matrícula", "nome": "Nome do Colaborador", "cargo": "Cargo"}
             )
-            conn.commit()
-            conn.close()
-
-            registrar_historico(
-                mat_t,
-                "Transferência de Filial",
-                "-",
-                f"Destino: {filial_destino}",
+            
+            df_selecionados_editor = str_lit.data_editor(
+                df_tabela_exibicao,
+                column_config={
+                    "Selecionar": str_lit.column_config.CheckboxColumn("Selecionar", required=True)
+                },
+                hide_index=True,
+                use_container_width=True,
             )
-            str_lit.success(
-                f"Colaborador transferido para a filial {filial_destino} com sucesso!"
-            )
-            str_lit.rerun()
+            
+            matriculas_selecionadas = df_selecionados_editor[
+                df_selecionados_editor["Selecionar"] == True
+            ]["Matrícula"].tolist()
+            
+            str_lit.markdown("---")
+            lista_dest = [f for f in list(filiais_nome_para_id.keys()) if f != filial_origem_sel]
+            
+            if not lista_dest:
+                str_lit.warning("Cadastre mais filiais para poder realizar transferências entre unidades diferentes.")
+            else:
+                filial_destino = str_lit.selectbox("🏢 2. Selecione a Filial de Destino:", options=lista_dest)
+                data_transf = str_lit.date_input(
+                    "Data da Transferência",
+                    value=date.today(),
+                    min_value=MIN_DATE,
+                    max_value=MAX_DATE,
+                    format="DD/MM/YYYY",
+                )
+                
+                str_lit.info(f"Total de colaboradores selecionados para transferência: **{len(matriculas_selecionadas)}**")
+                
+                if str_lit.button("🔄 Efetivar Transferência em Lote", type="primary"):
+                    if not matriculas_selecionadas:
+                        str_lit.error("Selecione pelo menos um colaborador na tabela acima marcando a caixa 'Selecionar'.")
+                    else:
+                        nova_filial_id = filiais_nome_para_id[filial_destino]
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        
+                        for mat_t in matriculas_selecionadas:
+                            c.execute(
+                                """
+                                UPDATE colaboradores
+                                SET filial_id = ?, tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Transferência', data_movimentacao = ?
+                                WHERE matricula = ?
+                            """,
+                                (nova_filial_id, str(data_transf), mat_t),
+                            )
+                        conn.commit()
+                        conn.close()
+                        
+                        for mat_t in matriculas_selecionadas:
+                            registrar_historico(
+                                mat_t,
+                                "Transferência de Filial (Lote)",
+                                filial_origem_sel,
+                                f"Destino: {filial_destino}",
+                            )
+                            
+                        str_lit.success(
+                            f"Sucesso! {len(matriculas_selecionadas)} colaborador(es) transferido(s) para a filial {filial_destino}!"
+                        )
+                        str_lit.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 6: COLABORADORES
@@ -846,6 +874,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
         cpf = c6.text_input("CPF")
         rg = c7.text_input("RG")
 
+        cnpj_empresa_input = str_lit.text_input("CNPJ da Empresa", value=CNPJ_PADRAO)
         observacoes = str_lit.text_area("Observações")
         status_colab_novo = (
             "Demitido"
@@ -895,7 +924,7 @@ elif menu == "➕ Novo Colaborador / Admissão":
                             str(data_mov),
                             observacoes,
                             tipo_contratacao,
-                            "37.608.361/0001-25",
+                            formatar_cnpj(cnpj_empresa_input),
                         ),
                     )
                     conn.commit()
@@ -1003,6 +1032,9 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                         e_cargo = str_lit.text_input(
                             "Cargo", value=str(colab_row["funcao"] or "")
                         )
+                        e_cnpj = str_lit.text_input(
+                            "CNPJ da Empresa", value=str(colab_row["cnpj_empresa"] or CNPJ_PADRAO)
+                        )
                         e_status = str_lit.selectbox(
                             "Status",
                             options=["Ativo", "Demitido"],
@@ -1027,7 +1059,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             c.execute(
                                 """
                                 UPDATE colaboradores 
-                                SET nome = ?, cpf = ?, rg = ?, funcao = ?, status_colaborador = ?, observacoes = ?
+                                SET nome = ?, cpf = ?, rg = ?, funcao = ?, cnpj_empresa = ?, status_colaborador = ?, observacoes = ?
                                 WHERE matricula = ?
                             """,
                                 (
@@ -1035,6 +1067,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                                     formatar_cpf(e_cpf),
                                     e_rg,
                                     e_cargo,
+                                    formatar_cnpj(e_cnpj),
                                     e_status,
                                     e_obs,
                                     matricula_sel,
@@ -1054,7 +1087,7 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
                             str_lit.rerun()
 
 # ---------------------------------------------------------
-# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO (Com Seleção de Mês/Ano e Histórico de Pedidos)
+# MÓDULO 9: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
     str_lit.title("💳 Pedido de Saldo Alimentação (VA)")
@@ -1086,7 +1119,6 @@ elif menu == "💳 Pedido Saldo Alimentação":
         if df_va.empty:
             str_lit.info("Nenhum colaborador ativo encontrado.")
         else:
-            # Seleção de Mês e Ano de Referência
             c_mes, c_ano = str_lit.columns(2)
             meses_disponiveis = [
                 "Janeiro",
@@ -1162,12 +1194,10 @@ elif menu == "💳 Pedido Saldo Alimentação":
                             cell = worksheet.cell(row=row_idx, column=col_idx)
                             cell.number_format = "#,##0.00"
 
-                # Salvar registro do pedido no banco de dados para o Histórico
                 dados_json_pedido = df_export.to_json(orient="records")
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
                 
-                # Assegura a tabela antes de salvar
                 c.execute("""
                     CREATE TABLE IF NOT EXISTS historico_pedidos_va (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
