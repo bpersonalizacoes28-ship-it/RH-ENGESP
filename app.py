@@ -1354,7 +1354,6 @@ elif menu == "💳 Pedido Saldo Alimentação":
             str_lit.markdown("---")
             str_lit.subheader("🗑️ Excluir Histórico de Pedido")
             
-            # Criamos um dicionário amigável para selecionar qual histórico apagar
             opcoes_pedidos_del = {
                 f"ID: {row['id']} | Mês/Ano: {row['mes_ano']} | Obra: {row['obra']} | Data: {row['data_geracao']}": row['id']
                 for _, row in df_hist_pedidos.iterrows()
@@ -1367,19 +1366,6 @@ elif menu == "💳 Pedido Saldo Alimentação":
             )
             
             if str_lit.button("🗑️ Deletar Histórico de Pedido Selecionado", type="secondary"):
-                if pedido_escolhido_str:
-                    id_pedido_del = opcoes_pedidos_del[pedido_escolhido_str]
-                    
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    c.execute("DELETE FROM historico_pedidos_va WHERE id = ?", (id_pedido_del,))
-                    conn.commit()
-                    conn.close()
-                    
-                    str_lit.success("Histórico de pedido de VA excluído com sucesso!")
-                    str_lit.rerun()
-                    
-                    if str_lit.button("🗑️ Deletar Histórico de Pedido Selecionado", type="secondary"):
                 if pedido_escolhido_str:
                     id_pedido_del = opcoes_pedidos_del[pedido_escolhido_str]
                     
