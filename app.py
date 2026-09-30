@@ -180,6 +180,15 @@ def init_db():
 
 init_db()
 
+c.execute("""
+        CREATE TABLE IF NOT EXISTS log_auditoria (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_hora TEXT,
+            usuario TEXT,
+            acao TEXT,
+            detalhes TEXT
+        )
+    """)
 
 # ---------------------------------------------------------
 # FUNÇÕES DE FORMATAÇÃO E LEITURA DINÂMICA
@@ -364,6 +373,21 @@ def get_cargos_cadastrados():
 
 filiais_nome_para_id, filiais_id_para_nome = get_filiais_dict()
 
+def registrar_log(acao, detalhes, usuario="Usuário Padrão"):
+    """Registra uma ação no log de auditoria do sistema."""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        data_hora_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(
+            "INSERT INTO log_auditoria (data_hora, usuario, acao, detalhes) VALUES (?, ?, ?, ?)",
+            (data_hora_atual, usuario, acao, detalhes)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Erro ao registrar log: {e}")
+
 # ---------------------------------------------------------
 # MENU PRINCIPAL
 # ---------------------------------------------------------
@@ -377,7 +401,9 @@ lista_modulos = [
     "✏️ Editar Cadastro do Colaborador",
     "💳 Pedido Saldo Alimentação",
     "⏱️ Folha de Ponto",
-    
+    "📤 Exportar Dados",
+    "📜 Histórico de Alterações",
+    "🛡️ Auditoria do Sistema",  # <-- ADICIONADO AQUI
 ]
 
 str_lit.markdown("### 🏢 Sistema de Gestão ADM")
@@ -493,6 +519,9 @@ elif menu == "🏢 Cadastro de Filiais":
                     )
                     conn.commit()
                     conn.close()
+                    
+                    registrar_log("CADASTRO", f"Cadastrou a nova filial: {nome_f}")
+                    
                     str_lit.success(f"Filial '{nome_f}' cadastrada e salva com sucesso!")
                     str_lit.rerun()
                 except sqlite3.IntegrityError:
@@ -516,7 +545,7 @@ elif menu == "🏢 Cadastro de Filiais":
 
         str_lit.markdown("---")
         str_lit.subheader("🗑️ Excluir Filial Cadastrada")
-        str_lit.warning("⚠️ **Atenção:** Ao excluir uma filial, todos os colaboradores e arquivos importados vinculados a ela também serão removidos do sistema.")
+        str_lit.warning("⚠️ **Atenção:** Ao excluir uma filial, todos os colaboradores e arquivos importados vinculados a ela também serão removidos.")
 
         filiais_dict_del, _ = get_filiais_dict()
         filial_para_deletar = str_lit.selectbox(
@@ -530,19 +559,16 @@ elif menu == "🏢 Cadastro de Filiais":
                 f_id_del = filiais_dict_del[filial_para_deletar]
                 conn = sqlite3.connect(DB_FILE)
                 c = conn.cursor()
-                
-                # Opcional/Seguro: apaga registros vinculados antes de apagar a filial para manter integridade
                 c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (f_id_del,))
                 c.execute("DELETE FROM importacoes_arquivos WHERE filial_id = ?", (f_id_del,))
                 c.execute("DELETE FROM historico_colaboradores WHERE filial_id = ?", (f_id_del,))
-                
-                # Apaga a filial
                 c.execute("DELETE FROM filiais WHERE id = ?", (f_id_del,))
-                
                 conn.commit()
                 conn.close()
                 
-                str_lit.success(f"Filial '{filial_para_deletar}' e seus dados associados foram excluídos com sucesso!")
+                registrar_log("EXCLUSÃO", f"Excluiu a filial: {filial_para_deletar} e seus registros associados.")
+                
+                str_lit.success(f"Filial '{filial_para_deletar}' excluída com sucesso!")
                 str_lit.rerun()
 
 # ---------------------------------------------------------
@@ -602,6 +628,22 @@ elif menu == "📥 Importar Colaboradores por Filial":
                     conn.close()
                     str_lit.success(f"Todos os colaboradores e a planilha arquivada da filial '{filial_imp}' foram apagados com sucesso!")
                     str_lit.rerun()
+
+            with col_del:
+                if str_lit.button("🗑️ Apagar Lista e Colaboradores Desta Filial", type="secondary"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (filial_id_atual,))
+                    c.execute("DELETE FROM importacoes_arquivos WHERE filial_id = ?", (filial_id_atual,))
+                    conn.commit()
+                    conn.close()
+                    
+                    registrar_log("EXCLUSÃO", f"Apagou todos os colaboradores e planilha da filial ID: {filial_id_atual}")
+                    
+                    str_lit.success(f"Todos os colaboradores da filial '{filial_imp}' foram apagados!")
+                    str_lit.rerun()
+                    
+                    registrar_log("IMPORTAÇÃO", f"Importou planilha '{nome_arq}' para a filial '{filial_imp}': {inseridos} novos, {atualizados} atualizados.")
 
             str_lit.markdown("---")
 
@@ -1337,6 +1379,21 @@ elif menu == "💳 Pedido Saldo Alimentação":
                     str_lit.success("Histórico de pedido de VA excluído com sucesso!")
                     str_lit.rerun()
                     
+                    if str_lit.button("🗑️ Deletar Histórico de Pedido Selecionado", type="secondary"):
+                if pedido_escolhido_str:
+                    id_pedido_del = opcoes_pedidos_del[pedido_escolhido_str]
+                    
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM historico_pedidos_va WHERE id = ?", (id_pedido_del,))
+                    conn.commit()
+                    conn.close()
+                    
+                    registrar_log("EXCLUSÃO", f"Excluiu o histórico de pedido de VA ID: {id_pedido_del}")
+                    
+                    str_lit.success("Histórico de pedido de VA excluído com sucesso!")
+                    str_lit.rerun()
+                    
 # ---------------------------------------------------------
 # MÓDULO 9: FOLHA DE PONTO
 # ---------------------------------------------------------
@@ -1505,4 +1562,28 @@ elif menu == "⏱️ Folha de Ponto":
                 conn.commit()
                 conn.close()
                 str_lit.success(f"Folha de ponto de {mes_ano_str} e os saldos de HE do colaborador salvos com sucesso no banco de dados!")
+                
+# ---------------------------------------------------------
+# MÓDULO: AUDITORIA DO SISTEMA
+# ---------------------------------------------------------
+elif menu == "🛡️ Auditoria do Sistema":
+    str_lit.title("🛡️ Histórico de Ações e Auditoria")
+    str_lit.info("Aqui você acompanha o registro detalhado de quem fez cadastros, exclusões e movimentações no sistema.")
 
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        df_logs = pd.read_sql_query(
+            "SELECT data_hora AS 'Data / Hora', usuario AS 'Usuário', acao AS 'Ação', detalhes AS 'Detalhes' FROM log_auditoria ORDER BY id DESC",
+            conn
+        )
+    except Exception:
+        df_logs = pd.DataFrame()
+    conn.close()
+
+    if df_logs.empty:
+        str_lit.info("Nenhum registro de auditoria encontrado.")
+    else:
+        str_lit.metric("Total de Ações Registradas", len(df_logs))
+        str_lit.markdown("---")
+        str_lit.dataframe(df_logs, use_container_width=True)
+        
