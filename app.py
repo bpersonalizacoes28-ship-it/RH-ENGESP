@@ -1242,192 +1242,101 @@ elif menu == "✏️ Editar Cadastro do Colaborador":
 # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
 # ---------------------------------------------------------
 elif menu == "💳 Pedido Saldo Alimentação":
-    str_lit.title("💳 Pedido de Saldo Alimentação (VA)")
+    str_lit.title("💳 Gestão, Pedido e Histórico de Saldo Alimentação / VA")
+    
+    # Criamos abas para separar a gestão de saldos atuais e o histórico de pedidos salvos
+    aba_saldos, aba_historico_pedidos = str_lit.tabs(["📝 Gestão de Saldos Atuais", "📜 Histórico de Pedidos Registrados"])
 
-    aba_pedido, aba_historico_pedidos = str_lit.tabs(
-        ["Novo Pedido / Exportação", "📜 Histórico de Pedidos Realizados"]
-    )
-
-    with aba_pedido:
-        conn = sqlite3.connect(DB_FILE)
-        try:
-            df_va = pd.read_sql_query(
-                """
-                SELECT c.cnpj_empresa as "CNPJ", c.nome as "Nome Completo", c.cpf as "CPF",
-                       f.nome as "Obra", c.premiacao as "Premiação", 
-                       c.mobilidade as "Mobilidade", c.alimentacao as "Alimentação",
-                       c.tipo_usuario_va as "Tags"
-                FROM colaboradores c
-                LEFT JOIN filiais f ON c.filial_id = f.id
-                WHERE c.status_colaborador = 'Ativo'
-                ORDER BY c.nome
-            """,
-                conn,
-            )
-        except Exception:
-            df_va = pd.DataFrame()
-        conn.close()
-
-        if df_va.empty:
-            str_lit.info("Nenhum colaborador ativo encontrado.")
+    with aba_saldos:
+        f_map, _ = get_filiais_dict()
+        if not f_map:
+            str_lit.warning("Cadastre filiais primeiro.")
         else:
-            c_mes, c_ano = str_lit.columns(2)
-            meses_disponiveis = [
-                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-            ]
-            mes_atual_idx = datetime.now().month - 1
-            mes_sel = c_mes.selectbox(
-                "Mês de Referência:",
-                options=meses_disponiveis,
-                index=mes_atual_idx,
-            )
-            ano_atual = datetime.now().year
-            anos_disponiveis = [str(ano) for ano in range(ano_atual - 2, ano_atual + 4)]
-            ano_sel = c_ano.selectbox(
-                "Ano de Referência:",
-                options=anos_disponiveis,
-                index=anos_disponiveis.index(str(ano_atual)),
-            )
+            filial_va = str_lit.selectbox("Selecione a Filial para o Pedido de VA:", options=list(f_map.keys()), key="sel_filial_va")
+            f_id = f_map[filial_va]
 
-            mes_ano_ref = f"{mes_sel} de {ano_sel}"
-
-            opcoes_f_va = ["Todas as Filiais"] + sorted(
-                df_va["Obra"].dropna().unique().tolist()
-            )
-            f_va_sel = str_lit.selectbox(
-                "Filtrar Obra para Pedido VA:", options=opcoes_f_va
-            )
-
-            df_va_filtered = df_va.copy()
-            if f_va_sel != "Todas as Filiais":
-                df_va_filtered = df_va_filtered[df_va_filtered["Obra"] == f_va_sel]
-
-            str_lit.write(
-                f"**Período Selecionado:** {mes_ano_ref} | **Obra:** {f_va_sel}"
-            )
-            str_lit.write(
-                "Ajuste os valores e tags abaixo se necessário (Ordem: CNPJ, Nome Completo, CPF, Obra, Premiação, Mobilidade, Alimentação, Tags):"
-            )
-
-            df_va_edit = str_lit.data_editor(
-                df_va_filtered, hide_index=True, use_container_width=True
-            )
-
-            if str_lit.button("📥 Gerar e Salvar Pedido VA Permanentemente"):
-                output_va = io.BytesIO()
-
-                df_export = df_va_edit.copy()
-                for col_val in ["Premiação", "Mobilidade", "Alimentação"]:
-                    if col_val in df_export.columns:
-                        df_export[col_val] = pd.to_numeric(
-                            df_export[col_val], errors="coerce"
-                        ).fillna(0.0)
-
-                with pd.ExcelWriter(output_va, engine="openpyxl") as writer:
-                    df_export.to_excel(
-                        writer, index=False, sheet_name="Pedido_VA"
-                    )
-
-                    workbook = writer.book
-                    worksheet = writer.sheets["Pedido_VA"]
-                    for col_idx in [5, 6, 7]:
-                        for row_idx in range(2, len(df_export) + 2):
-                            cell = worksheet.cell(row=row_idx, column=col_idx)
-                            cell.number_format = "#,##0.00"
-
-                dados_json_pedido = df_export.to_json(orient="records")
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                
-                c.execute("""
-                    CREATE TABLE IF NOT EXISTS historico_pedidos_va (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        mes_ano TEXT,
-                        obra TEXT,
-                        data_geracao DATETIME,
-                        dados_json TEXT
-                    )
-                """)
-                
-                c.execute(
+            conn = sqlite3.connect(DB_FILE)
+            try:
+                df_va = pd.read_sql_query(
                     """
-                    INSERT INTO historico_pedidos_va (mes_ano, obra, data_geracao, dados_json)
-                    VALUES (?, ?, ?, ?)
+                    SELECT matricula as "Matrícula", nome as "Empregado", funcao as "Cargo", 
+                           saldo_cartao_alimentacao as "Saldo Atual (R$)", tipo_usuario_va as "Tipo Usuário"
+                    FROM colaboradores
+                    WHERE filial_id = ? AND status_colaborador = 'Ativo'
+                    ORDER BY nome
                 """,
-                    (
-                        mes_ano_ref,
-                        f_va_sel,
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        dados_json_pedido,
-                    ),
+                    conn, params=(f_id,)
                 )
-                conn.commit()
-                conn.close()
+            except Exception:
+                df_va = pd.DataFrame()
+            conn.close()
 
-                str_lit.success(
-                    f"Pedido referente a {mes_ano_ref} gerado e salvo com sucesso no histórico permanente!"
-                )
+            if df_va.empty:
+                str_lit.info("Nenhum colaborador ativo nesta filial.")
+            else:
+                str_lit.write("Atualize os valores de saldo ou tipo de usuário abaixo e salve:")
+                df_va_editado = str_lit.data_editor(df_va, hide_index=True, use_container_width=True)
 
-                str_lit.download_button(
-                    label="📥 Baixar Planilha de Pedido VA em Excel",
-                    data=output_va.getvalue(),
-                    file_name=f"pedido_va_{mes_sel}_{ano_sel}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
+                if str_lit.button("💾 Salvar Alterações de Saldo VA", key="btn_salvar_saldo_va"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    for _, row in df_va_editado.iterrows():
+                        c.execute("""
+                            UPDATE colaboradores 
+                            SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
+                            WHERE matricula = ?
+                        """, (row["Saldo Atual (R$)"], row["Tipo Usuário"], row["Matrícula"]))
+                    conn.commit()
+                    conn.close()
+                    str_lit.success("Saldos de alimentação salvos com sucesso!")
+                    str_lit.rerun()
 
     with aba_historico_pedidos:
-        str_lit.subheader("📜 Histórico de Pedidos de Saldo Alimentação Registrados")
+        str_lit.subheader("📜 Histórico de Pedidos de VA / Saldo Alimentação Salvos")
+        
         conn = sqlite3.connect(DB_FILE)
         try:
-            df_hist_va = pd.read_sql_query(
-                """
-                SELECT id, mes_ano as "Mês/Ano", obra as "Obra/Filial", data_geracao as "Data de Geração", dados_json
-                FROM historico_pedidos_va
-                ORDER BY id DESC
-            """,
-                conn,
+            df_hist_pedidos = pd.read_sql_query(
+                "SELECT id, mes_ano, obra, data_geracao FROM historico_pedidos_va ORDER BY data_geracao DESC",
+                conn
             )
         except Exception:
-            df_hist_va = pd.DataFrame()
+            df_hist_pedidos = pd.DataFrame()
         conn.close()
 
-        if df_hist_va.empty:
-            str_lit.info("Nenhum pedido de VA registrado até o momento.")
+        if df_hist_pedidos.empty:
+            str_lit.info("Nenhum histórico de pedido de VA registrado no banco de dados.")
         else:
-            for _, row_hist in df_hist_va.iterrows():
-                with str_lit.expander(
-                    f"📅 Pedido: {row_hist['Mês/Ano']} | Obra: {row_hist['Obra/Filial']} (Gerado em: {row_hist['Data de Geração']})"
-                ):
-                    try:
-                        df_salvo = pd.read_json(row_hist["dados_json"])
-                        str_lit.dataframe(df_salvo, use_container_width=True)
-
-                        output_hist_item = io.BytesIO()
-                        with pd.ExcelWriter(
-                            output_hist_item, engine="openpyxl"
-                        ) as writer:
-                            df_salvo.to_excel(
-                                writer, index=False, sheet_name="Pedido_VA"
-                            )
-                            worksheet = writer.sheets["Pedido_VA"]
-                            for col_idx in [5, 6, 7]:
-                                for row_idx in range(2, len(df_salvo) + 2):
-                                    cell = worksheet.cell(
-                                        row=row_idx, column=col_idx
-                                    )
-                                    cell.number_format = "#,##0.00"
-
-                        str_lit.download_button(
-                            label=f"📥 Baixar Novamente (ID {row_hist['id']})",
-                            data=output_hist_item.getvalue(),
-                            file_name=f"pedido_va_{row_hist['Mês/Ano'].replace(' ', '_')}_{row_hist['Obra/Filial'].replace(' ', '_')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key=f"dl_hist_{row_hist['id']}",
-                        )
-                    except Exception as e:
-                        str_lit.error(f"Erro ao carregar dados salvos: {e}")
-
+            str_lit.dataframe(df_hist_pedidos, use_container_width=True)
+            
+            str_lit.markdown("---")
+            str_lit.subheader("🗑️ Excluir Histórico de Pedido")
+            
+            # Criamos um dicionário amigável para selecionar qual histórico apagar
+            opcoes_pedidos_del = {
+                f"ID: {row['id']} | Mês/Ano: {row['mes_ano']} | Obra: {row['obra']} | Data: {row['data_geracao']}": row['id']
+                for _, row in df_hist_pedidos.iterrows()
+            }
+            
+            pedido_escolhido_str = str_lit.selectbox(
+                "Selecione o registro de pedido que deseja excluir:",
+                options=list(opcoes_pedidos_del.keys()),
+                key="select_del_pedido_va"
+            )
+            
+            if str_lit.button("🗑️ Deletar Histórico de Pedido Selecionado", type="secondary"):
+                if pedido_escolhido_str:
+                    id_pedido_del = opcoes_pedidos_del[pedido_escolhido_str]
+                    
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM historico_pedidos_va WHERE id = ?", (id_pedido_del,))
+                    conn.commit()
+                    conn.close()
+                    
+                    str_lit.success("Histórico de pedido de VA excluído com sucesso!")
+                    str_lit.rerun()
+                    
 # ---------------------------------------------------------
 # MÓDULO 9: FOLHA DE PONTO
 # ---------------------------------------------------------
