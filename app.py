@@ -472,8 +472,10 @@ if menu == "📊 Dashboard / Consulta":
 # MÓDULO 2: CADASTRO DE FILIAIS
 # ---------------------------------------------------------
 elif menu == "🏢 Cadastro de Filiais":
-    str_lit.title("🏢 Cadastro de Novas Filiais")
+    str_lit.title("🏢 Cadastro e Gestão de Filiais")
+    
     with str_lit.form("form_nova_filial"):
+        str_lit.subheader("Cadastrar Nova Filial")
         nome_f = str_lit.text_input("Nome da Filial / Obra *")
         cnpj_f = str_lit.text_input("CNPJ da Filial", value=CNPJ_PADRAO)
         btn_cad_fil = str_lit.form_submit_button("Cadastrar Filial")
@@ -497,18 +499,51 @@ elif menu == "🏢 Cadastro de Filiais":
                     str_lit.error("Erro: Filial já cadastrada.")
 
     str_lit.markdown("---")
-    str_lit.subheader("Filiais Cadastradas")
+    str_lit.subheader("Filiais Cadastradas e Gerenciamento")
+    
     conn = sqlite3.connect(DB_FILE)
     try:
-        df_f_cad = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais", conn)
+        df_f_cad = pd.read_sql_query("SELECT id, nome, cnpj FROM filiais ORDER BY nome", conn)
     except Exception:
         df_f_cad = pd.DataFrame()
     conn.close()
-    if not df_f_cad.empty:
+
+    if df_f_cad.empty:
+        str_lit.info("Nenhuma filial cadastrada.")
+    else:
         df_f_cad["cnpj"] = df_f_cad["cnpj"].apply(formatar_cnpj)
         str_lit.dataframe(df_f_cad, use_container_width=True)
-    else:
-        str_lit.info("Nenhuma filial cadastrada.")
+
+        str_lit.markdown("---")
+        str_lit.subheader("🗑️ Excluir Filial Cadastrada")
+        str_lit.warning("⚠️ **Atenção:** Ao excluir uma filial, todos os colaboradores e arquivos importados vinculados a ela também serão removidos do sistema.")
+
+        filiais_dict_del, _ = get_filiais_dict()
+        filial_para_deletar = str_lit.selectbox(
+            "Selecione a Filial que deseja excluir:",
+            options=list(filiais_dict_del.keys()),
+            key="select_del_filial"
+        )
+
+        if str_lit.button("🗑️ Deletar Filial Selecionada", type="secondary"):
+            if filial_para_deletar:
+                f_id_del = filiais_dict_del[filial_para_deletar]
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                
+                # Opcional/Seguro: apaga registros vinculados antes de apagar a filial para manter integridade
+                c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (f_id_del,))
+                c.execute("DELETE FROM importacoes_arquivos WHERE filial_id = ?", (f_id_del,))
+                c.execute("DELETE FROM historico_colaboradores WHERE filial_id = ?", (f_id_del,))
+                
+                # Apaga a filial
+                c.execute("DELETE FROM filiais WHERE id = ?", (f_id_del,))
+                
+                conn.commit()
+                conn.close()
+                
+                str_lit.success(f"Filial '{filial_para_deletar}' e seus dados associados foram excluídos com sucesso!")
+                str_lit.rerun()
 
 # ---------------------------------------------------------
 # MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
