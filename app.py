@@ -518,7 +518,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
     str_lit.title("📥 Importação Sincronizada e Arquivamento de Planilhas")
     str_lit.info(
         "💡 **Recurso de Arquivamento:** Além de atualizar os colaboradores em tempo real, o sistema "
-        "armazena a última planilha importada para cada filial, permitindo o download dela a qualquer momento."
+        "armazena a última planilha importada para cada filial, permitindo o download dela ou a exclusão da lista a qualquer momento."
     )
 
     f_map_atual, _ = get_filiais_dict()
@@ -546,13 +546,29 @@ elif menu == "📥 Importar Colaboradores por Filial":
         if not df_arq_salvo.empty:
             row_arq = df_arq_salvo.iloc[0]
             str_lit.success(f"📂 **Última planilha arquivada para esta filial:** `{row_arq['nome_arquivo']}` (Importada em: {row_arq['data_importacao']})")
-            str_lit.download_button(
-                label=f"📥 Baixar Planilha Atual Arquivada ({row_arq['nome_arquivo']})",
-                data=row_arq["arquivo_blob"],
-                file_name=row_arq["nome_arquivo"],
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_arq_filial_{filial_id_atual}"
-            )
+            
+            col_dl, col_del = str_lit.columns(2)
+            with col_dl:
+                str_lit.download_button(
+                    label=f"📥 Baixar Planilha Atual Arquivada",
+                    data=row_arq["arquivo_blob"],
+                    file_name=row_arq["nome_arquivo"],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_arq_filial_{filial_id_atual}"
+                )
+            with col_del:
+                if str_lit.button("🗑️ Apagar Lista e Colaboradores Desta Filial", type="secondary"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    # Apaga os colaboradores cadastrados nessa filial
+                    c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (filial_id_atual,))
+                    # Apaga o registro da planilha arquivada
+                    c.execute("DELETE FROM importacoes_arquivos WHERE filial_id = ?", (filial_id_atual,))
+                    conn.commit()
+                    conn.close()
+                    str_lit.success(f"Todos os colaboradores e a planilha arquivada da filial '{filial_imp}' foram apagados com sucesso!")
+                    str_lit.rerun()
+
             str_lit.markdown("---")
 
         arquivo_upload = str_lit.file_uploader(
@@ -647,7 +663,7 @@ elif menu == "📥 Importar Colaboradores por Filial":
                     str_lit.rerun()
             except Exception as e:
                 str_lit.error(f"Erro ao processar arquivo: {e}")
-
+                
 # ---------------------------------------------------------
 # MÓDULO 4: TRANSFERÊNCIA ENTRE FILIAIS
 # ---------------------------------------------------------
