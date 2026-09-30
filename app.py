@@ -1506,3 +1506,4 @@ elif menu == "⏱️ Folha de Ponto":
                 conn.close()
                 str_lit.success(f"Folha de ponto de {mes_ano_str} e os saldos de HE do colaborador salvos com sucesso no banco de dados!")
 
+
