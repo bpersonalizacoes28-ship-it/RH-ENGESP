@@ -377,8 +377,7 @@ lista_modulos = [
     "✏️ Editar Cadastro do Colaborador",
     "💳 Pedido Saldo Alimentação",
     "⏱️ Folha de Ponto",
-    "📤 Exportar Dados",
-    "📜 Histórico de Alterações",
+    
 ]
 
 str_lit.markdown("### 🏢 Sistema de Gestão ADM")
