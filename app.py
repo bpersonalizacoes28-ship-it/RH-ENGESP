@@ -58,7 +58,6 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # Tabela de Usuários / Autenticação
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             email TEXT PRIMARY KEY,
@@ -67,7 +66,6 @@ def init_db():
         )
     """)
     
-    # Tabela de Logs de Auditoria
     c.execute("""
         CREATE TABLE IF NOT EXISTS logs_auditoria (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1379,7 +1377,7 @@ else:
                                 str_lit.rerun()
 
     # ---------------------------------------------------------
-    # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
+    # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO (ATUALIZADO)
     # ---------------------------------------------------------
     elif menu == "💳 Pedido Saldo Alimentação":
         str_lit.title("💳 Gestão, Pedido e Histórico de Saldo Alimentação / VA")
@@ -1391,15 +1389,23 @@ else:
             if not f_map:
                 str_lit.warning("Cadastre filiais primeiro.")
             else:
-                filial_va = str_lit.selectbox("Selecione a Filial para o Pedido de VA:", options=list(f_map.keys()), key="sel_filial_va")
+                c_fil_va, c_mes_va, c_ano_va = str_lit.columns(3)
+                filial_va = c_fil_va.selectbox("Selecione a Filial:", options=list(f_map.keys()), key="sel_filial_va")
                 f_id = f_map[filial_va]
+
+                meses_lista = [
+                    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+                ]
+                mes_va = c_mes_va.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1, key="sel_mes_va")
+                ano_va = c_ano_va.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year, key="sel_ano_va")
+                mes_ano_str = f"{mes_va} de {ano_va}"
 
                 conn = sqlite3.connect(DB_FILE)
                 try:
-                    df_va = pd.read_sql_query(
+                    df_va_raw = pd.read_sql_query(
                         """
-                        SELECT matricula as "Matrícula", nome as "Empregado", funcao as "Cargo", 
-                               saldo_cartao_alimentacao as "Saldo Atual (R$)", tipo_usuario_va as "Tipo Usuário"
+                        SELECT cnpj_empresa, nome, cpf, premiacao, mobilidade, alimentacao, tipo_usuario_va, matricula
                         FROM colaboradores
                         WHERE filial_id = ? AND status_colaborador = 'Ativo'
                         ORDER BY nome
@@ -1407,29 +1413,89 @@ else:
                         conn, params=(f_id,)
                     )
                 except Exception:
-                    df_va = pd.DataFrame()
+                    df_va_raw = pd.DataFrame()
                 conn.close()
 
-                if df_va.empty:
+                if df_va_raw.empty:
                     str_lit.info("Nenhum colaborador ativo nesta filial.")
                 else:
-                    str_lit.write("Atualize os valores de saldo ou tipo de usuário abaixo e salve:")
-                    df_va_editado = str_lit.data_editor(df_va, hide_index=True, use_container_width=True)
+                    # Montar DataFrame com a ordem exata solicitada: CNPJ, NOME COMPLETO, CPF, OBRA, PREMIACAO, MOBILIDADE, ALIMENTACAO, TAGS
+                    lista_linhas_estruturadas = []
+                    for _, row in df_va_raw.iterrows():
+                        lista_linhas_estruturadas.append({
+                            "CNPJ": formatar_cnpj(row["cnpj_empresa"]),
+                            "NOME COMPLETO": row["nome"],
+                            "CPF": formatar_cpf(row["cpf"]),
+                            "OBRA": filial_va,
+                            "PREMIACAO": float(row["premiacao"] or 0.0),
+                            "MOBILIDADE": float(row["mobilidade"] or 0.0),
+                            "ALIMENTACAO": float(row["alimentacao"] or 0.0),
+                            "TAGS": row["tipo_usuario_va"] if row["tipo_usuario_va"] in ["Já Usuário", "Novo"] else "Já Usuário",
+                            "_matricula": row["matricula"]  # Oculta/Auxiliar para salvar
+                        })
 
-                    if str_lit.button("💾 Salvar Alterações de Saldo VA", key="btn_salvar_saldo_va"):
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        for _, row in df_va_editado.iterrows():
+                    df_va_final = pd.DataFrame(lista_linhas_estruturadas)
+
+                    str_lit.write("Preencha os valores e tags desejados abaixo:")
+                    
+                    df_va_editado = str_lit.data_editor(
+                        df_va_final.drop(columns=["_matricula"]),
+                        column_config={
+                            "CNPJ": str_lit.column_config.TextColumn("CNPJ", disabled=True),
+                            "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
+                            "CPF": str_lit.column_config.TextColumn("CPF", disabled=True),
+                            "OBRA": str_lit.column_config.TextColumn("OBRA", disabled=True),
+                            "PREMIACAO": str_lit.column_config.NumberColumn("PREMIACAO (R$)", format="R$ %.2f"),
+                            "MOBILIDADE": str_lit.column_config.NumberColumn("MOBILIDADE (R$)", format="R$ %.2f"),
+                            "ALIMENTACAO": str_lit.column_config.NumberColumn("ALIMENTACAO (R$)", format="R$ %.2f"),
+                            "TAGS": str_lit.column_config.SelectboxColumn("TAGS", options=["Já Usuário", "Novo"], required=True)
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+
+                    c_btn1, c_btn2 = str_lit.columns(2)
+
+                    with c_btn1:
+                        if str_lit.button("💾 Salvar Alterações e Registrar Pedido de VA", key="btn_salvar_saldo_va", type="primary"):
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            
+                            for idx, row in df_va_editado.iterrows():
+                                mat_real = df_va_final.iloc[idx]["_matricula"]
+                                c.execute("""
+                                    UPDATE colaboradores 
+                                    SET premiacao = ?, mobilidade = ?, alimentacao = ?, tipo_usuario_va = ?
+                                    WHERE matricula = ?
+                                """, (row["PREMIACAO"], row["MOBILIDADE"], row["ALIMENTACAO"], row["TAGS"], mat_real))
+
+                            # Salva também no histórico de pedidos
+                            dados_json_ped = df_va_editado.to_json(orient="records", force_ascii=False)
                             c.execute("""
-                                UPDATE colaboradores 
-                                SET saldo_cartao_alimentacao = ?, tipo_usuario_va = ?
-                                WHERE matricula = ?
-                            """, (row["Saldo Atual (R$)"], row["Tipo Usuário"], row["Matrícula"]))
-                        conn.commit()
-                        conn.close()
-                        registrar_auditoria("Saldo VA", f"Atualizou saldos VA da filial {filial_va}")
-                        str_lit.success("Saldos de alimentação salvos com sucesso!")
-                        str_lit.rerun()
+                                INSERT INTO historico_pedidos_va (mes_ano, obra, data_geracao, dados_json)
+                                VALUES (?, ?, ?, ?)
+                            """, (mes_ano_str, filial_va, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), dados_json_ped))
+
+                            conn.commit()
+                            conn.close()
+                            
+                            registrar_auditoria("Pedido VA", f"Registrou pedido de VA da filial {filial_va} para {mes_ano_str}")
+                            str_lit.success("Dados salvos e pedido de VA registrado com sucesso!")
+                            str_lit.rerun()
+
+                    with c_btn2:
+                        # Geração de Excel para Download
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            df_va_editado.to_excel(writer, index=False, sheet_name='Pedido VA')
+                        excel_data = output.getvalue()
+
+                        str_lit.download_button(
+                            label="📥 Exportar Planilha em Excel (.xlsx)",
+                            data=excel_data,
+                            file_name=f"Pedido_VA_{filial_va}_{mes_va}_{ano_va}.xlsx".replace(" ", "_"),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
 
         with aba_historico_pedidos:
             str_lit.subheader("📜 Histórico de Pedidos de VA / Saldo Alimentação Salvos")
