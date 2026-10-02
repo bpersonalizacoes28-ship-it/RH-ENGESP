@@ -80,8 +80,7 @@ def enviar_email_codigo(destinatario, codigo):
             server.send_message(msg)
         return True
     except Exception as e:
-        # Fallback de segurança para não travar o fluxo caso o SMTP não esteja configurado
-        print(f"[ALerta SMTP] Não foi possível enviar e-mail real: {e}")
+        print(f"[Alerta SMTP] Não foi possível enviar e-mail real: {e}")
         print(f"[CÓDIGO GERADO PARA {destinatario}]: {codigo}")
         return False
 
@@ -101,6 +100,12 @@ def init_db():
         )
     """)
     
+    # Garante compatibilidade caso a tabela já exista sem a coluna nova
+    try:
+        c.execute("ALTER TABLE usuarios ADD COLUMN codigo_verificacao TEXT")
+    except Exception:
+        pass
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS logs_auditoria (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -458,7 +463,6 @@ if not str_lit.session_state.autenticado:
             else:
                 codigo_otp = f"{random.randint(100000, 999999)}"
                 
-                # Tenta o envio real e grava o registro independentemente para não travar a tela
                 enviar_email_codigo(email_input, codigo_otp)
 
                 conn = sqlite3.connect(DB_FILE)
@@ -479,7 +483,6 @@ if not str_lit.session_state.autenticado:
     else:
         str_lit.warning(f"📬 Código solicitado para o e-mail: **{str_lit.session_state.email_pendente}**")
         
-        # Facilidade de teste local caso o SMTP não esteja ativo
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
         c.execute("SELECT codigo_verificacao FROM usuarios WHERE email = ?", (str_lit.session_state.email_pendente,))
@@ -1259,7 +1262,7 @@ else:
     # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
     # ---------------------------------------------------------
     elif menu == "✏️ Editar Cadastro do Colaborador":
-        str_lit.title("✏️️ Editar Cadastro do Colaborador")
+        str_lit.title("✏️ Editar Cadastro do Colaborador")
 
         conn = sqlite3.connect(DB_FILE)
         try:
