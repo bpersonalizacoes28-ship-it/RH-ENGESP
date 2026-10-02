@@ -51,7 +51,7 @@ str_lit.markdown(
 DB_FILE = "gestao_empresa.db"
 CNPJ_PADRAO = "37.608.361/0001-25"
 ADMIN_EMAIL = "admin@engesp.com"
-ADMIN_SENHA_PADRAO = "admin123"  # Senha inicial padrão do Administrador
+ADMIN_SENHA_PADRAO = "admin123"
 
 
 def hash_senha(senha):
@@ -66,7 +66,6 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # Tabela de Usuários com Senha
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             email TEXT PRIMARY KEY,
@@ -75,7 +74,6 @@ def init_db():
         )
     """)
 
-    # Garante que o Admin padrão exista no banco
     c.execute("SELECT email FROM usuarios WHERE email = ?", (ADMIN_EMAIL,))
     if not c.fetchone():
         c.execute(
@@ -202,6 +200,16 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS importacoes_arquivos (
+            filial_id INTEGER PRIMARY KEY,
+            nome_arquivo TEXT,
+            data_importacao DATETIME,
+            arquivo_blob BLOB,
+            FOREIGN KEY (filial_id) REFERENCES filiais (id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS folga_campo_recesso (
             filial_id INTEGER PRIMARY KEY,
             nome_arquivo TEXT,
             data_importacao DATETIME,
@@ -415,7 +423,7 @@ def get_cargos_cadastrados():
 
 
 # =========================================================
-# CONTROLE DE SESSÃO E TELA DE AUTENTICAÇÃO (LOGIN / CADASTRO / RECUPERAÇÃO)
+# CONTROLE DE SESSÃO E TELA DE AUTENTICAÇÃO
 # =========================================================
 if "autenticado" not in str_lit.session_state:
     str_lit.session_state.autenticado = False
@@ -467,7 +475,7 @@ if not str_lit.session_state.autenticado:
                 elif senha_c != senha_c2:
                     str_lit.error("⚠️ As senhas não coincidem.")
                 elif len(senha_c) < 4:
-                    str_lit.error("⚠️ A senha deve conter pelo menos 4 caracteres.")
+                    str_lit.error("⚠️️ A senha deve conter pelo menos 4 caracteres.")
                 else:
                     try:
                         conn = sqlite3.connect(DB_FILE)
@@ -534,9 +542,9 @@ else:
         "✏️ Editar Cadastro do Colaborador",
         "💳 Pedido Saldo Alimentação",
         "⏱️ Folha de Ponto",
+        "🏖️ Folga de Campo / Recesso",
     ]
 
-    # Módulo de Auditoria exclusivo para o e-mail do Administrador único
     if str_lit.session_state.usuario_logado.lower() == ADMIN_EMAIL.lower():
         lista_modulos.append("🛡️ Auditoria de Sistema")
 
@@ -694,6 +702,7 @@ else:
                     
                     c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (f_id_del,))
                     c.execute("DELETE FROM importacoes_arquivos WHERE filial_id = ?", (f_id_del,))
+                    c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_del,))
                     c.execute("DELETE FROM historico_colaboradores WHERE filial_id = ?", (f_id_del,))
                     c.execute("DELETE FROM filiais WHERE id = ?", (f_id_del,))
                     
@@ -961,7 +970,7 @@ else:
                             str_lit.rerun()
 
     # ---------------------------------------------------------
-    # MÓDULO 5: COLABORADORES
+    # MÓDULO 5: COLABORADORES (COM OPÇÕES DE EXCLUSÃO)
     # ---------------------------------------------------------
     elif menu == "👥 Colaboradores":
         str_lit.title("👥 Gestão de Colaboradores por Filial (Ativos e Demitidos)")
@@ -1038,7 +1047,6 @@ else:
                     if selecionar_todos:
                         df_c_res["Selecionar"] = True
 
-                    str_lit.write("Marque individualmente ou use a opção acima para selecionar todos e efetivar a demissão em lote:")
                     df_editavel = str_lit.data_editor(
                         df_c_res,
                         column_config={
@@ -1048,44 +1056,77 @@ else:
                         use_container_width=True,
                     )
 
-                    matriculas_para_demitir = df_editavel[
+                    matriculas_selecionadas = df_editavel[
                         df_editavel["Selecionar"] == True
                     ]["Matrícula"].tolist()
 
-                    if matriculas_para_demitir:
-                        str_lit.warning(f"⚠️ Você selecionou **{len(matriculas_para_demitir)}** colaborador(es) para colocar como **Demitido**.")
-                        
-                        data_demissao_lote = str_lit.date_input(
-                            "Data da Demissão:",
-                            value=date.today(),
-                            min_value=MIN_DATE,
-                            max_value=MAX_DATE,
-                            format="DD/MM/YYYY",
-                            key="dt_demissao_lote_input"
-                        )
+                    col_acao1, col_acao2 = str_lit.columns(2)
+                    
+                    with col_acao1:
+                        if matriculas_selecionadas:
+                            str_lit.warning(f"⚠️ **{len(matriculas_selecionadas)}** colaborador(es) selecionado(s).")
+                            data_demissao_lote = str_lit.date_input(
+                                "Data da Demissão:",
+                                value=date.today(),
+                                min_value=MIN_DATE,
+                                max_value=MAX_DATE,
+                                format="DD/MM/YYYY",
+                                key="dt_demissao_lote_input"
+                            )
 
-                        if str_lit.button("🔴 Efetivar Demissão dos Selecionados", type="primary"):
-                            conn = sqlite3.connect(DB_FILE)
-                            c = conn.cursor()
-                            for mat_dem in matriculas_para_demitir:
-                                c.execute(
-                                    """
-                                    UPDATE colaboradores 
-                                    SET status_colaborador = 'Demitido', data_demissao = ?, 
-                                        tipo_movimentacao = 'Saída', subtipo_movimentacao = 'Demissão', data_movimentacao = ?
-                                    WHERE matricula = ?
-                                """,
-                                    (str(data_demissao_lote), str(data_demissao_lote), mat_dem),
-                                )
-                            conn.commit()
-                            conn.close()
+                            if str_lit.button("🔴 Efetivar Demissão dos Selecionados", type="primary"):
+                                conn = sqlite3.connect(DB_FILE)
+                                c = conn.cursor()
+                                for mat_dem in matriculas_selecionadas:
+                                    c.execute(
+                                        """
+                                        UPDATE colaboradores 
+                                        SET status_colaborador = 'Demitido', data_demissao = ?, 
+                                            tipo_movimentacao = 'Saída', subtipo_movimentacao = 'Demissão', data_movimentacao = ?
+                                        WHERE matricula = ?
+                                    """,
+                                        (str(data_demissao_lote), str(data_demissao_lote), mat_dem),
+                                    )
+                                conn.commit()
+                                conn.close()
 
-                            for mat_dem in matriculas_para_demitir:
-                                registrar_historico(mat_dem, "Demissão em Lote", "Ativo", "Demitido")
+                                for mat_dem in matriculas_selecionadas:
+                                    registrar_historico(mat_dem, "Demissão em Lote", "Ativo", "Demitido")
 
-                            registrar_auditoria("Demissão em Lote", f"{len(matriculas_para_demitir)} colaboradores demitidos.")
-                            str_lit.success(f"{len(matriculas_para_demitir)} colaborador(es) marcado(s) como Demitido(s) e alocado(s) na aba de Demitidos!")
-                            str_lit.rerun()
+                                registrar_auditoria("Demissão em Lote", f"{len(matriculas_selecionadas)} colaboradores demitidos.")
+                                str_lit.success(f"{len(matriculas_selecionadas)} colaborador(es) marcado(s) como Demitido(s)!")
+                                str_lit.rerun()
+
+                    with col_acao2:
+                        if matriculas_selecionadas:
+                            str_lit.write("") # espaçamento
+                            str_lit.write("")
+                            if str_lit.button("🗑️ Excluir Colaboradores Selecionados", type="secondary"):
+                                conn = sqlite3.connect(DB_FILE)
+                                c = conn.cursor()
+                                for mat_ex in matriculas_selecionadas:
+                                    c.execute("DELETE FROM colaboradores WHERE matricula = ?", (mat_ex,))
+                                    c.execute("DELETE FROM historico_colaboradores WHERE colaborador_matricula = ?", (mat_ex,))
+                                conn.commit()
+                                conn.close()
+                                registrar_auditoria("Exclusão de Colaboradores", f"Excluiu {len(matriculas_selecionadas)} colaboradores.")
+                                str_lit.success(f"{len(matriculas_selecionadas)} colaborador(es) excluído(s) permanentemente do sistema!")
+                                str_lit.rerun()
+
+                    str_lit.markdown("---")
+                    if str_lit.button("🚨 EXCLUIR TODOS OS COLABORADORES DA LISTA ACIMA", type="secondary"):
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        if filial_escolhida_colab_mod == "Todas as Filiais":
+                            c.execute("DELETE FROM colaboradores")
+                        else:
+                            f_id_ex_all = filiais_nome_para_id[filial_escolhida_colab_mod]
+                            c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (f_id_ex_all,))
+                        conn.commit()
+                        conn.close()
+                        registrar_auditoria("Exclusão Geral Colaboradores", f"Excluiu todos os colaboradores da seleção: {filial_escolhida_colab_mod}")
+                        str_lit.success("Todos os colaboradores correspondentes foram excluídos com sucesso!")
+                        str_lit.rerun()
 
             with aba_demitidos:
                 conn = sqlite3.connect(DB_FILE)
@@ -1128,7 +1169,28 @@ else:
                 if df_dem_res.empty:
                     str_lit.info("Nenhum colaborador demitido encontrado para esta seleção.")
                 else:
-                    str_lit.dataframe(df_dem_res, use_container_width=True)
+                    df_dem_res.insert(0, "Selecionar", False)
+                    df_edit_dem = str_lit.data_editor(
+                        df_dem_res,
+                        column_config={
+                            "Selecionar": str_lit.column_config.CheckboxColumn("Selecionar", required=True)
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                    
+                    matriculas_dem_selecionadas = df_edit_dem[df_edit_dem["Selecionar"] == True]["Matrícula"].tolist()
+                    if matriculas_dem_selecionadas:
+                        if str_lit.button("🗑️ Excluir Definitivamente os Demitidos Selecionados", type="secondary"):
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            for mat_d in matriculas_dem_selecionadas:
+                                c.execute("DELETE FROM colaboradores WHERE matricula = ?", (mat_d,))
+                            conn.commit()
+                            conn.close()
+                            registrar_auditoria("Exclusão Demitidos", f"Excluiu {len(matriculas_dem_selecionadas)} registros demitidos.")
+                            str_lit.success("Registros excluídos permanentemente!")
+                            str_lit.rerun()
 
     # ---------------------------------------------------------
     # MÓDULO 6: NOVO COLABORADOR / ADMISSÃO
@@ -1735,7 +1797,103 @@ else:
                     str_lit.success(f"Folha de ponto de {mes_ano_str} e os saldos de HE do colaborador salvos com sucesso no banco de dados!")
 
     # ---------------------------------------------------------
-    # MÓDULO 10: AUDITORIA DE SISTEMA (EXCLUSIVO ADMIN)
+    # MÓDULO 10: FOLGA DE CAMPO / RECESSO
+    # ---------------------------------------------------------
+    elif menu == "🏖️ Folga de Campo / Recesso":
+        str_lit.title("🏖️ Controle de Folga de Campo / Recesso por Filial")
+        str_lit.info("💡 Faça o upload da planilha correspondente às folgas de campo ou recesso da filial para manter o arquivo arquivado e sincronizado.")
+
+        f_map_folga, _ = get_filiais_dict()
+        if not f_map_folga:
+            str_lit.warning("Cadastre uma filial primeiro.")
+        else:
+            filial_folga_sel = str_lit.selectbox(
+                "🏢 Selecione a Filial / Obra:",
+                options=list(f_map_folga.keys()),
+                key="sel_filial_folga_campo"
+            )
+            f_id_folga = f_map_folga[filial_folga_sel]
+
+            conn = sqlite3.connect(DB_FILE)
+            try:
+                df_folga_salva = pd.read_sql_query(
+                    "SELECT nome_arquivo, data_importacao, arquivo_blob FROM folga_campo_recesso WHERE filial_id = ?",
+                    conn, params=(f_id_folga,)
+                )
+            except Exception:
+                df_folga_salva = pd.DataFrame()
+            conn.close()
+
+            if not df_folga_salva.empty:
+                row_f_salva = df_folga_salva.iloc[0]
+                str_lit.success(f"📂 **Planilha de Folga/Recesso arquivada:** `{row_f_salva['nome_arquivo']}` (Importada em: {row_f_salva['data_importacao']})")
+                
+                try:
+                    df_preview_salvo = pd.read_excel(io.BytesIO(row_f_salva["arquivo_blob"]), engine="openpyxl")
+                    str_lit.write("Pré-visualização dos dados salvos:")
+                    str_lit.dataframe(df_preview_salvo, use_container_width=True)
+                except Exception:
+                    pass
+
+                col_dl_f, col_del_f = str_lit.columns(2)
+                with col_dl_f:
+                    str_lit.download_button(
+                        label="📥 Baixar Planilha de Folga/Recesso Atual",
+                        data=row_f_salva["arquivo_blob"],
+                        file_name=row_f_salva["nome_arquivo"],
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"dl_folga_filial_{f_id_folga}"
+                    )
+                with col_del_f:
+                    if str_lit.button("🗑️ Apagar Arquivo de Folga Desta Filial", type="secondary"):
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_folga,))
+                        conn.commit()
+                        conn.close()
+                        registrar_auditoria("Limpeza Folga de Campo", f"Apagou planilha de folga da filial {filial_folga_sel}")
+                        str_lit.success("Arquivo de folga/recesso removido com sucesso!")
+                        str_lit.rerun()
+
+                str_lit.markdown("---")
+
+            arquivo_folga_up = str_lit.file_uploader(
+                "Envie a planilha em Excel ou CSV de Folga de Campo / Recesso:",
+                type=["xlsx", "xls", "xlsm", "csv"],
+                key="uploader_folga_campo"
+            )
+
+            if arquivo_folga_up is not None:
+                try:
+                    nome_arq_f = arquivo_folga_up.name
+                    bytes_arq_f = arquivo_folga_up.getvalue()
+                    
+                    if nome_arq_f.lower().endswith(".csv"):
+                        df_imp_f = pd.read_csv(io.BytesIO(bytes_arq_f))
+                    else:
+                        df_imp_f = pd.read_excel(io.BytesIO(bytes_arq_f), engine="openpyxl")
+
+                    str_lit.write(f"Pré-visualização do arquivo enviado ({len(df_imp_f)} linhas):")
+                    str_lit.dataframe(df_imp_f, use_container_width=True)
+
+                    if str_lit.button("🚀 Salvar e Arquivar Planilha de Folga/Recesso", type="primary"):
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute("""
+                            INSERT OR REPLACE INTO folga_campo_recesso (filial_id, nome_arquivo, data_importacao, arquivo_blob)
+                            VALUES (?, ?, ?, ?)
+                        """, (f_id_folga, nome_arq_f, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), sqlite3.Binary(bytes_arq_f)))
+                        conn.commit()
+                        conn.close()
+
+                        registrar_auditoria("Folga de Campo Importada", f"Filial {filial_folga_sel}: {nome_arq_f}")
+                        str_lit.success("Planilha de folga de campo/recesso salva e arquivada com sucesso!")
+                        str_lit.rerun()
+                except Exception as e:
+                    str_lit.error(f"Erro ao ler arquivo: {e}")
+
+    # ---------------------------------------------------------
+    # MÓDULO 11: AUDITORIA DE SISTEMA (EXCLUSIVO ADMIN)
     # ---------------------------------------------------------
     elif menu == "🛡️ Auditoria de Sistema":
         if str_lit.session_state.usuario_logado.lower() != ADMIN_EMAIL.lower():
