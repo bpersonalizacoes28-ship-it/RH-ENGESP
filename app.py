@@ -417,7 +417,7 @@ if not str_lit.session_state.autenticado:
 
             if btn_entrar:
                 if not email_l.endswith("@engesp.com"):
-                    str_lit.error("⚠️ O e-mail deve terminar com `@engesp.com`.")
+                    str_lit.error("⚠️️ O e-mail deve terminar com `@engesp.com`.")
                 else:
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
@@ -446,7 +446,7 @@ if not str_lit.session_state.autenticado:
                 if not email_c.endswith("@engesp.com"):
                     str_lit.error("⚠️ O e-mail deve terminar com `@engesp.com`.")
                 elif senha_c != senha_c2:
-                    str_lit.error("⚠️ As senhas não coincidem.")
+                    str_lit.error("⚠️️ As senhas não coincidem.")
                 elif len(senha_c) < 4:
                     str_lit.error("⚠️ A senha deve conter pelo menos 4 caracteres.")
                 else:
@@ -519,7 +519,7 @@ else:
     ]
 
     if str_lit.session_state.usuario_logado.lower() == ADMIN_EMAIL.lower():
-        lista_modulos.append("🛡️️ Auditoria de Sistema")
+        lista_modulos.append("🛡️ Auditoria de Sistema")
 
     str_lit.markdown("### 🏢 Sistema de Gestão ADM")
     menu = str_lit.selectbox(
@@ -633,27 +633,28 @@ else:
             str_lit.warning("⚠️ **Atenção:** Ao excluir uma filial, todos os colaboradores e arquivos importados vinculados a ela também serão removidos do sistema.")
 
             filiais_dict_del, _ = get_filiais_dict()
-            filial_para_deletar = str_lit.selectbox(
-                "Selecione a Filial que deseja excluir:",
-                options=list(filiais_dict_del.keys()),
-                key="select_del_filial"
-            )
+            if filiais_dict_del:
+                filial_para_deletar = str_lit.selectbox(
+                    "Selecione a Filial que deseja excluir:",
+                    options=list(filiais_dict_del.keys()),
+                    key="select_del_filial"
+                )
 
-            if str_lit.button("🗑️ Deletar Filial Selecionada", type="secondary"):
-                if filial_para_deletar:
-                    f_id_del = filiais_dict_del[filial_para_deletar]
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (f_id_del,))
-                    c.execute("DELETE FROM importacoes_arquivos WHERE filial_id = ?", (f_id_del,))
-                    c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_del,))
-                    c.execute("DELETE FROM historico_colaboradores WHERE filial_id = ?", (f_id_del,))
-                    c.execute("DELETE FROM filiais WHERE id = ?", (f_id_del,))
-                    conn.commit()
-                    conn.close()
-                    registrar_auditoria("Exclusão de Filial", f"Removeu a filial {filial_para_deletar}")
-                    str_lit.success(f"Filial '{filial_para_deletar}' e seus dados associados foram excluídos com sucesso!")
-                    str_lit.rerun()
+                if str_lit.button("🗑️ Deletar Filial Selecionada", type="secondary"):
+                    if filial_para_deletar:
+                        f_id_del = filiais_dict_del[filial_para_deletar]
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (f_id_del,))
+                        c.execute("DELETE FROM importacoes_arquivos WHERE filial_id = ?", (f_id_del,))
+                        c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_del,))
+                        c.execute("DELETE FROM historico_colaboradores WHERE filial_id = ?", (f_id_del,))
+                        c.execute("DELETE FROM filiais WHERE id = ?", (f_id_del,))
+                        conn.commit()
+                        conn.close()
+                        registrar_auditoria("Exclusão de Filial", f"Removeu a filial {filial_para_deletar}")
+                        str_lit.success(f"Filial '{filial_para_deletar}' e seus dados associados foram excluídos com sucesso!")
+                        str_lit.rerun()
 
     # ---------------------------------------------------------
     # MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
@@ -669,7 +670,7 @@ else:
         f_map_atual, _ = get_filiais_dict()
 
         if not f_map_atual:
-            str_lit.warning("Cadastre uma filial primeiro.")
+            str_lit.warning("⚠️ Cadastre uma filial primeiro no módulo 'Cadastro de Filiais'.")
         else:
             filial_imp = str_lit.selectbox(
                 "Selecione a Filial de Destino da Importação:",
@@ -827,7 +828,7 @@ else:
         conn.close()
 
         if df_transf.empty or filiais_nome_para_id is None:
-            str_lit.info("Nenhum colaborador ativo disponível para transferência ou filiais insuficientes.")
+            str_lit.info("⚠️ Nenhum colaborador ativo disponível para transferência ou filiais insuficientes cadastradas.")
         else:
             lista_origens = sorted(df_transf["filial_nome"].dropna().unique().tolist())
             if not lista_origens:
@@ -908,7 +909,7 @@ else:
         conn.close()
 
         if df_filiais_colab.empty:
-            str_lit.warning("⚠️ Nenhuma filial cadastrada.")
+            str_lit.warning("⚠️ Nenhuma filial cadastrada no sistema.")
         else:
             lista_nomes_f = ["Todas as Filiais"] + df_filiais_colab["nome"].tolist()
             filial_escolhida_colab_mod = str_lit.selectbox("🏢 Selecione a Filial:", lista_nomes_f)
@@ -951,7 +952,7 @@ else:
             conn.close()
 
             if df_res.empty:
-                str_lit.info("Nenhum colaborador ativo encontrado.")
+                str_lit.info("ℹ️ Nenhum colaborador ativo encontrado. Importe uma planilha ou cadastre um novo colaborador.")
             else:
                 for col_d in ["DATA MOVIMENTAÇÃO", "DATA ADMISSÃO"]:
                     if col_d in df_res.columns:
@@ -1013,7 +1014,7 @@ else:
     elif menu == "➕ Novo Colaborador / Admissão":
         str_lit.title("➕ Admissão / Movimentação de Empregado")
         if not filiais_nome_para_id:
-            str_lit.warning("⚠️ Cadastre pelo menos uma filial antes.")
+            str_lit.warning("⚠️ Cadastre pelo menos uma filial antes no módulo 'Cadastro de Filiais'.")
         else:
             c_fil, c1, c2 = str_lit.columns(3)
             filial_nome = c_fil.selectbox("Filial *", options=list(filiais_nome_para_id.keys()))
@@ -1066,10 +1067,10 @@ else:
                         str_lit.error("Erro: Matrícula já cadastrada.")
 
     # ---------------------------------------------------------
-    # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
+    # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR (CORRIGIDO)
     # ---------------------------------------------------------
-    elif menu == "✏️️ Editar Cadastro do Colaborador":
-        str_lit.title("✏️ Editar Cadastro Individual do Colaborador")
+    elif menu == "✏️ Editar Cadastro do Colaborador":
+        str_lit.title("✏️️ Editar Cadastro Individual do Colaborador")
         
         conn = sqlite3.connect(DB_FILE)
         try:
@@ -1082,9 +1083,9 @@ else:
         conn.close()
 
         if df_colab_geral.empty:
-            str_lit.info("Nenhum colaborador cadastrado.")
+            str_lit.info("⚠️ Nenhum colaborador cadastrado no sistema para edição.")
         else:
-            opcoes_colab = df_colab_geral["matricula"] + " - " + df_colab_geral["nome"] + " (" + df_colab_geral["filial"].fillna("") + ")"
+            opcoes_colab = df_colab_geral["matricula"] + " - " + df_colab_geral["nome"] + " (" + df_colab_geral["filial"].fillna("Sem Filial") + ")"
             colab_sel = str_lit.selectbox("Selecione o Colaborador:", options=opcoes_colab)
             
             if colab_sel:
@@ -1096,13 +1097,13 @@ else:
                 if not df_det.empty:
                     row_d = df_det.iloc[0]
                     with str_lit.form("form_edicao_individual"):
-                        n_nome = str_lit.text_input("Nome Completo", value=row_d["nome"])
+                        n_nome = str_lit.text_input("Nome Completo", value=str(row_d["nome"] or ""))
                         n_cargo = str_lit.text_input("Cargo", value=str(row_d["funcao"] or ""))
                         n_cpf = str_lit.text_input("CPF", value=formatar_cpf(row_d["cpf"]))
                         n_rg = str_lit.text_input("RG", value=str(row_d["rg"] or ""))
-                        n_peric = str_lit.selectbox("Periculosidade", options=["Não", "Sim"], index=0 if row_d["periculosidade"] == "Não" else 1)
+                        n_peric = str_lit.selectbox("Periculosidade", options=["Não", "Sim"], index=0 if str(row_d["periculosidade"]) == "Não" else 1)
                         n_ajuda = str_lit.number_input("Ajuda de Custo (R$)", value=float(row_d["ajuda_custo"] or 0.0), format="%.2f")
-                        n_status = str_lit.selectbox("Status", options=["Ativo", "Demitido"], index=0 if row_d["status_colaborador"] == "Ativo" else 1)
+                        n_status = str_lit.selectbox("Status", options=["Ativo", "Demitido"], index=0 if str(row_d["status_colaborador"]) == "Ativo" else 1)
                         n_obs = str_lit.text_area("Observações", value=str(row_d["observacoes"] or ""))
 
                         if str_lit.form_submit_button("💾 Salvar Alterações"):
@@ -1130,7 +1131,7 @@ else:
         with aba_saldos:
             f_map, _ = get_filiais_dict()
             if not f_map:
-                str_lit.warning("Cadastre filiais primeiro.")
+                str_lit.warning("⚠️ Cadastre filiais primeiro.")
             else:
                 c_fil_va, c_mes_va, c_ano_va = str_lit.columns(3)
                 filial_va = c_fil_va.selectbox("Selecione a Filial:", options=list(f_map.keys()), key="sel_filial_va")
@@ -1160,7 +1161,7 @@ else:
                 conn.close()
 
                 if df_va_raw.empty:
-                    str_lit.info("Nenhum colaborador ativo nesta filial.")
+                    str_lit.info("ℹ️ Nenhum colaborador ativo nesta filial.")
                 else:
                     lista_linhas_estruturadas = []
                     for _, row in df_va_raw.iterrows():
@@ -1239,12 +1240,12 @@ else:
             conn.close()
 
             if df_hist_pedidos.empty:
-                str_lit.info("Nenhum histórico registrado.")
+                str_lit.info("ℹ️ Nenhum histórico registrado.")
             else:
                 str_lit.dataframe(df_hist_pedidos, use_container_width=True)
 
     # ---------------------------------------------------------
-    # MÓDULO 9: FOLHA DE PONTO (CORRIGIDO)
+    # MÓDULO 9: FOLHA DE PONTO
     # ---------------------------------------------------------
     elif menu == "⏱️ Folha de Ponto":
         str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
@@ -1274,7 +1275,7 @@ else:
             df_ponto_filtrado = df_ponto[df_ponto["Filial"] == filial_escolhida_ponto]
             
             if df_ponto_filtrado.empty:
-                str_lit.warning("Nenhum colaborador ativo nesta filial.")
+                str_lit.warning("⚠️ Nenhum colaborador ativo nesta filial.")
             else:
                 colab_ponto = str_lit.selectbox("👥 2. Selecione o Colaborador:", options=df_ponto_filtrado["Matrícula"] + " - " + df_ponto_filtrado["Empregado"])
                 matricula_atual = colab_ponto.split(" - ")[0]
@@ -1353,7 +1354,7 @@ else:
         
         f_map_folga, _ = get_filiais_dict()
         if not f_map_folga:
-            str_lit.warning("Cadastre uma filial primeiro.")
+            str_lit.warning("⚠️ Cadastre uma filial primeiro.")
         else:
             filial_folga_sel = str_lit.selectbox("🏢 Selecione a Filial / Obra:", options=list(f_map_folga.keys()), key="sel_filial_folga")
             f_id_folga = f_map_folga[filial_folga_sel]
@@ -1394,89 +1395,92 @@ else:
                     })
                 df_trabalho = pd.DataFrame(linhas_iniciais)
 
-            str_lit.markdown("---")
-            str_lit.subheader("⚙️ Configuração de Cálculo Automático das Folgas (29, 59, 89)")
-            c_op1, c_op2 = str_lit.columns(2)
-            dias_intervalo_1 = c_op1.selectbox("Intervalo da 1ª para a 2ª Folga (dias):", options=[29, 59, 89], index=1)
-            dias_intervalo_2 = c_op2.selectbox("Intervalo da 2ª para a 3ª Folga (dias):", options=[29, 59, 89], index=2)
+            if df_trabalho.empty:
+                str_lit.info("ℹ️ Nenhum colaborador ativo cadastrado nesta filial para exibir no controle de folgas.")
+            else:
+                str_lit.markdown("---")
+                str_lit.subheader("⚙️ Configuração de Cálculo Automático das Folgas (29, 59, 89)")
+                c_op1, c_op2 = str_lit.columns(2)
+                dias_intervalo_1 = c_op1.selectbox("Intervalo da 1ª para a 2ª Folga (dias):", options=[29, 59, 89], index=1)
+                dias_intervalo_2 = c_op2.selectbox("Intervalo da 2ª para a 3ª Folga (dias):", options=[29, 59, 89], index=2)
 
-            if str_lit.button("⚡ Aplicar Fórmulas Automáticas de Datas"):
-                for idx, row in df_trabalho.iterrows():
-                    f1_str = str(row.get("1° FOLGA", "")).strip()
-                    if f1_str and f1_str not in ["None", "nan", "-"]:
-                        try:
-                            dt1 = datetime.strptime(parse_data_rigorosa(f1_str), "%Y-%m-%d").date()
-                            dt2 = dt1 + timedelta(days=dias_intervalo_1)
-                            df_trabalho.loc[idx, "2° FOLGA"] = dt2.strftime("%d/%m/%Y")
-                        except Exception:
-                            pass
+                if str_lit.button("⚡ Aplicar Fórmulas Automáticas de Datas"):
+                    for idx, row in df_trabalho.iterrows():
+                        f1_str = str(row.get("1° FOLGA", "")).strip()
+                        if f1_str and f1_str not in ["None", "nan", "-"]:
+                            try:
+                                dt1 = datetime.strptime(parse_data_rigorosa(f1_str), "%Y-%m-%d").date()
+                                dt2 = dt1 + timedelta(days=dias_intervalo_1)
+                                df_trabalho.loc[idx, "2° FOLGA"] = dt2.strftime("%d/%m/%Y")
+                            except Exception:
+                                pass
 
-                    f2_str = str(row.get("2° FOLGA", "")).strip()
-                    if f2_str and f2_str not in ["None", "nan", "-"]:
-                        try:
-                            dt2 = datetime.strptime(parse_data_rigorosa(f2_str), "%Y-%m-%d").date()
-                            dt3 = dt2 + timedelta(days=dias_intervalo_2)
-                            df_trabalho.loc[idx, "3° FOLGA"] = dt3.strftime("%d/%m/%Y")
-                        except Exception:
-                            pass
-                str_lit.success("Fórmulas aplicadas com sucesso nas datas!")
+                        f2_str = str(row.get("2° FOLGA", "")).strip()
+                        if f2_str and f2_str not in ["None", "nan", "-"]:
+                            try:
+                                dt2 = datetime.strptime(parse_data_rigorosa(f2_str), "%Y-%m-%d").date()
+                                dt3 = dt2 + timedelta(days=dias_intervalo_2)
+                                df_trabalho.loc[idx, "3° FOLGA"] = dt3.strftime("%d/%m/%Y")
+                            except Exception:
+                                pass
+                    str_lit.success("Fórmulas aplicadas com sucesso nas datas!")
 
-            str_lit.markdown("---")
-            str_lit.write("Tabela interativa de Folga de Campo / Recesso (Edite qualquer célula livremente):")
+                str_lit.markdown("---")
+                str_lit.write("Tabela interativa de Folga de Campo / Recesso (Edite qualquer célula livremente):")
 
-            df_edit_folga = str_lit.data_editor(
-                df_trabalho,
-                column_config={
-                    "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
-                    "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
-                    "OBRA": str_lit.column_config.TextColumn("OBRA", disabled=True),
-                    "1° FOLGA": str_lit.column_config.TextColumn("1° FOLGA (DD/MM/AAAA)"),
-                    "CHEGOU DA 1° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 1° FOLGA (DD/MM/AAAA)"),
-                    "2° FOLGA": str_lit.column_config.TextColumn("2° FOLGA (DD/MM/AAAA)"),
-                    "CHEGOU DA 2° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 2° FOLGA (DD/MM/AAAA)"),
-                    "3° FOLGA": str_lit.column_config.TextColumn("3° FOLGA (DD/MM/AAAA)"),
-                },
-                hide_index=True,
-                use_container_width=True,
-            )
-
-            c_b1, c_b2, c_b3 = str_lit.columns(3)
-            with c_b1:
-                if str_lit.button("💾 Salvar Dados de Folga Permanentemente", type="primary"):
-                    json_str_folga = df_edit_folga.to_json(orient="records", force_ascii=False)
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    c.execute("""
-                        INSERT OR REPLACE INTO folga_campo_recesso (filial_id, nome_arquivo, data_importacao, dados_json)
-                        VALUES (?, ?, ?, ?)
-                    """, (f_id_folga, f"Controle_Folga_{filial_folga_sel}.xlsx", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), json_str_folga))
-                    conn.commit()
-                    conn.close()
-                    registrar_auditoria("Folga de Campo Salva", f"Atualizou folgas da filial {filial_folga_sel}")
-                    str_lit.success("Dados salvos com sucesso no banco de dados!")
-                    str_lit.rerun()
-
-            with c_b2:
-                output_f = io.BytesIO()
-                with pd.ExcelWriter(output_f, engine='openpyxl') as writer:
-                    df_edit_folga.to_excel(writer, index=False, sheet_name='Folga de Campo')
-                str_lit.download_button(
-                    label="📥 Exportar Planilha Excel (.xlsx)",
-                    data=output_f.getvalue(),
-                    file_name=f"Folga_Campo_{filial_folga_sel}.xlsx".replace(" ", "_"),
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                df_edit_folga = str_lit.data_editor(
+                    df_trabalho,
+                    column_config={
+                        "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
+                        "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
+                        "OBRA": str_lit.column_config.TextColumn("OBRA", disabled=True),
+                        "1° FOLGA": str_lit.column_config.TextColumn("1° FOLGA (DD/MM/AAAA)"),
+                        "CHEGOU DA 1° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 1° FOLGA (DD/MM/AAAA)"),
+                        "2° FOLGA": str_lit.column_config.TextColumn("2° FOLGA (DD/MM/AAAA)"),
+                        "CHEGOU DA 2° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 2° FOLGA (DD/MM/AAAA)"),
+                        "3° FOLGA": str_lit.column_config.TextColumn("3° FOLGA (DD/MM/AAAA)"),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
                 )
 
-            with c_b3:
-                if str_lit.button("🗑️ Apagar Todos os Registros Desta Filial", type="secondary"):
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_folga,))
-                    conn.commit()
-                    conn.close()
-                    registrar_auditoria("Limpeza Folga", f"Removeu folgas da filial {filial_folga_sel}")
-                    str_lit.success("Registros apagados com sucesso!")
-                    str_lit.rerun()
+                c_b1, c_b2, c_b3 = str_lit.columns(3)
+                with c_b1:
+                    if str_lit.button("💾 Salvar Dados de Folga Permanentemente", type="primary"):
+                        json_str_folga = df_edit_folga.to_json(orient="records", force_ascii=False)
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute("""
+                            INSERT OR REPLACE INTO folga_campo_recesso (filial_id, nome_arquivo, data_importacao, dados_json)
+                            VALUES (?, ?, ?, ?)
+                        """, (f_id_folga, f"Controle_Folga_{filial_folga_sel}.xlsx", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), json_str_folga))
+                        conn.commit()
+                        conn.close()
+                        registrar_auditoria("Folga de Campo Salva", f"Atualizou folgas da filial {filial_folga_sel}")
+                        str_lit.success("Dados salvos com sucesso no banco de dados!")
+                        str_lit.rerun()
+
+                with c_b2:
+                    output_f = io.BytesIO()
+                    with pd.ExcelWriter(output_f, engine='openpyxl') as writer:
+                        df_edit_folga.to_excel(writer, index=False, sheet_name='Folga de Campo')
+                    str_lit.download_button(
+                        label="📥 Exportar Planilha Excel (.xlsx)",
+                        data=output_f.getvalue(),
+                        file_name=f"Folga_Campo_{filial_folga_sel}.xlsx".replace(" ", "_"),
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+
+                with c_b3:
+                    if str_lit.button("🗑️ Apagar Todos os Registros Desta Filial", type="secondary"):
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_folga,))
+                        conn.commit()
+                        conn.close()
+                        registrar_auditoria("Limpeza Folga", f"Removeu folgas da filial {filial_folga_sel}")
+                        str_lit.success("Registros apagados com sucesso!")
+                        str_lit.rerun()
 
             str_lit.markdown("---")
             arquivo_up_folga_esp = str_lit.file_uploader(
@@ -1510,7 +1514,7 @@ else:
     # ---------------------------------------------------------
     elif menu == "🛡️ Auditoria de Sistema":
         if str_lit.session_state.usuario_logado.lower() != ADMIN_EMAIL.lower():
-            str_lit.error("⚠ Acesso não autorizado.")
+            str_lit.error("⚠️️ Acesso não autorizado.")
         else:
             str_lit.title("🛡️ Auditoria e Logs de Atividades")
             conn = sqlite3.connect(DB_FILE)
@@ -1521,7 +1525,7 @@ else:
             conn.close()
 
             if df_logs.empty:
-                str_lit.info("Nenhum log encontrado.")
+                str_lit.info("ℹ️ Nenhum log de auditoria registrado.")
             else:
                 str_lit.metric("Total de Ações", len(df_logs))
                 str_lit.dataframe(df_logs, use_container_width=True)
