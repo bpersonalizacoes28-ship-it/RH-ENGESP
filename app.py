@@ -129,7 +129,6 @@ def init_db():
         )
     """)
 
-    # Garante colunas caso o banco já exista
     novas_colunas = [
         ("periculosidade", "TEXT DEFAULT 'Não'"),
         ("ajuda_custo", "REAL DEFAULT 0"),
@@ -487,9 +486,9 @@ if not str_lit.session_state.autenticado:
                 if not email_c.endswith("@engesp.com"):
                     str_lit.error("⚠️ O e-mail deve terminar com `@engesp.com`.")
                 elif senha_c != senha_c2:
-                    str_lit.error("⚠️ As senhas não coincidem.")
+                    str_lit.error("⚠️️ As senhas não coincidem.")
                 elif len(senha_c) < 4:
-                    str_lit.error("⚠️️ A senha deve conter pelo menos 4 caracteres.")
+                    str_lit.error("⚠ A senha deve conter pelo menos 4 caracteres.")
                 else:
                     try:
                         conn = sqlite3.connect(DB_FILE)
@@ -555,7 +554,7 @@ else:
         "➕ Novo Colaborador / Admissão",
         "✏️ Editar Cadastro do Colaborador",
         "💳 Pedido Saldo Alimentação",
-        "⏱️ Folha de Ponto",
+        "⏱️️ Folha de Ponto",
         "🏖️ Folga de Campo / Recesso",
     ]
 
@@ -770,7 +769,6 @@ else:
                     else:
                         df_imp = pd.read_excel(io.BytesIO(bytes_arquivo), engine="openpyxl")
 
-                    # Padroniza mapeamento de colunas
                     colunas_map_normalizado = {str(c).strip().upper(): c for c in df_imp.columns}
                     
                     str_lit.write(f"Pré-visualização dos dados importados ({len(df_imp)} registros encontrados):")
@@ -786,7 +784,6 @@ else:
                         filial_id_destino = f_dict_recarregado.get(filial_imp)
 
                         for _, r in df_imp.iterrows():
-                            # Busca chaves flexíveis respeitando a ordem solicitada
                             mat = str(r.get(colunas_map_normalizado.get("MATRÍCULA", "matricula"), r.get("MATRICULA", ""))).strip()
                             if not mat or mat.lower() == "nan":
                                 continue
@@ -803,7 +800,6 @@ else:
                             if tipo_contr_v not in ["CLT", "PJ"]:
                                 tipo_contr_v = "CLT"
 
-                            # Tenta extrair nome se houver coluna correspondente ou usa matrícula como fallback
                             nome_col_chave = colunas_map_normalizado.get("NOME", colunas_map_normalizado.get("EMPREGADO", colunas_map_normalizado.get("FUNCIONÁRIO", None)))
                             nome_v = str(r.get(nome_col_chave, f"Colaborador {mat}")).strip() if nome_col_chave else f"Colaborador {mat}"
 
@@ -997,21 +993,18 @@ else:
             if df_res.empty:
                 str_lit.info("Nenhum colaborador ativo encontrado.")
             else:
-                # Formata datas e CPFs
                 for col_d in ["DATA MOVIMENTAÇÃO", "DATA ADMISSÃO"]:
                     if col_d in df_res.columns:
                         df_res[col_d] = df_res[col_d].apply(formatar_data_br)
                 if "CPF" in df_res.columns:
                     df_res["CPF"] = df_res["CPF"].apply(formatar_cpf)
 
-                # Calcula Próxima Folga de Campo (última data preenchida)
                 proximas_folgas = []
                 for _, r in df_res.iterrows():
                     pf = calcular_ultima_folga_colaborador(r["filial_id"], r["MATRÍCULA"])
                     proximas_folgas.append(pf)
                 df_res.insert(3, "PRÓXIMA FOLGA DE CAMPO", proximas_folgas)
 
-                # Remove coluna interna de ID auxiliar para exibição
                 df_para_editar = df_res.drop(columns=["filial_id", "STATUS"]).copy()
 
                 str_lit.write("Edite diretamente as informações desejadas na tabela abaixo e clique em salvar:")
@@ -1115,7 +1108,7 @@ else:
     # ---------------------------------------------------------
     # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
     # ---------------------------------------------------------
-    elif menu == "✏️️ Editar Cadastro do Colaborador":
+    elif menu == "✏️ Editar Cadastro do Colaborador":
         str_lit.title("✏️ Editar Cadastro Individual do Colaborador")
         
         conn = sqlite3.connect(DB_FILE)
@@ -1392,7 +1385,7 @@ else:
     # MÓDULO 10: FOLGA DE CAMPO / RECESSO
     # ---------------------------------------------------------
     elif menu == "🏖️ Folga de Campo / Recesso":
-        str_lit.title("🏖️ Controle de Folga de Campo / Recesso (Com Fórmulas de Dias)")
+        str_lit.title("🏖️ Controle de Folga de Campo / Recesso (Intervalos: 29, 59 e 89 dias)")
         
         f_map_folga, _ = get_filiais_dict()
         if not f_map_folga:
@@ -1408,7 +1401,6 @@ else:
                 df_f_db = pd.DataFrame()
             conn.close()
 
-            # Se já existir arquivo salvo, carrega do banco. Senão, puxa os colaboradores ativos da filial.
             df_trabalho = pd.DataFrame()
             if not df_f_db.empty and df_f_db.iloc[0]["dados_json"]:
                 try:
@@ -1439,12 +1431,12 @@ else:
                 df_trabalho = pd.DataFrame(linhas_iniciais)
 
             str_lit.markdown("---")
-            str_lit.subheader("⚙️ Configuração de Cálculo Automático das Folgas")
+            str_lit.subheader("⚙️ Configuração de Cálculo Automático das Folgas (29, 59, 89)")
             c_op1, c_op2 = str_lit.columns(2)
-            dias_intervalo_1 = c_op1.selectbox("Intervalo da 1ª para a 2ª Folga:", options=[60, 90], index=0)
-            dias_intervalo_2 = c_op2.selectbox("Intervalo da 2ª para a 3ª Folga:", options=[60, 90], index=0)
+            dias_intervalo_1 = c_op1.selectbox("Intervalo da 1ª para a 2ª Folga (dias):", options=[29, 59, 89], index=1)
+            dias_intervalo_2 = c_op2.selectbox("Intervalo da 2ª para a 3ª Folga (dias):", options=[29, 59, 89], index=2)
 
-            if str_lit.button("⚡ Aplicar Fórmulas Automáticas de Datas (+60/+90 dias)"):
+            if str_lit.button("⚡ Aplicar Fórmulas Automáticas de Datas"):
                 for idx, row in df_trabalho.iterrows():
                     f1_str = str(row.get("1° FOLGA", "")).strip()
                     if f1_str and f1_str not in ["None", "nan", "-"]:
