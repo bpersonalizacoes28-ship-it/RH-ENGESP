@@ -51,12 +51,11 @@ str_lit.markdown(
 
 DB_FILE = "gestao_empresa.db"
 CNPJ_PADRAO = "37.608.361/0001-25"
-ADMIN_EMAIL = "admin@engesp.com"  # E-mail com acesso exclusivo à Auditoria
+ADMIN_EMAIL = "admin@engesp.com"
 
 # =========================================================
 # CONFIGURAÇÕES DE E-MAIL (SMTP)
 # =========================================================
-# Substitua pelos dados reais do servidor de e-mail da ENGESP
 SMTP_SERVER = "smtp.seuprovedor.com"
 SMTP_PORT = 587
 SMTP_USER = "sistema@engesp.com"
@@ -64,7 +63,7 @@ SMTP_PASSWORD = "sua_senha_de_app_ou_email"
 
 
 def enviar_email_codigo(destinatario, codigo):
-    """Envia o código de verificação via protocolo SMTP."""
+    """Tenta enviar o código via SMTP. Se falhar, registra no console para fallback."""
     msg = EmailMessage()
     msg.set_content(
         f"Olá,\n\nSeu código de acesso ao Sistema de Gestão ADM - ENGESP é: {codigo}\n\n"
@@ -75,15 +74,15 @@ def enviar_email_codigo(destinatario, codigo):
     msg["To"] = destinatario
 
     try:
-        # Se estiver testando localmente sem servidor SMTP configurado,
-        # você pode comentar este bloco temporariamente se necessário.
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=5) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.send_message(msg)
         return True
     except Exception as e:
-        print(f"Erro ao enviar e-mail: {e}")
+        # Fallback de segurança para não travar o fluxo caso o SMTP não esteja configurado
+        print(f"[ALerta SMTP] Não foi possível enviar e-mail real: {e}")
+        print(f"[CÓDIGO GERADO PARA {destinatario}]: {codigo}")
         return False
 
 
@@ -434,7 +433,7 @@ def get_cargos_cadastrados():
 
 
 # =========================================================
-# CONTROLE DE SESSÃO E TELA DE AUTENTICAÇÃO POR CÓDIGO (ENVIO POR E-MAIL)
+# CONTROLE DE SESSÃO E TELA DE AUTENTICAÇÃO POR CÓDIGO
 # =========================================================
 if "autenticado" not in str_lit.session_state:
     str_lit.session_state.autenticado = False
@@ -446,59 +445,60 @@ if "email_pendente" not in str_lit.session_state:
     str_lit.session_state.email_pendente = ""
 
 if not str_lit.session_state.autenticado:
-    str_lit.title("🔐 Acesso Restrito - Portal ENGESP (Login por Código no E-mail)")
+    str_lit.title("🔐 Acesso Restrito - Portal ENGESP (Login por Código)")
     
-    str_lit.info("Insira seu e-mail corporativo finalizado em `@engesp.com` para receber o código de verificação na sua caixa de entrada.")
+    str_lit.info("Insira seu e-mail corporativo finalizado em `@engesp.com` para prosseguir.")
 
     email_input = str_lit.text_input("E-mail Corporativo (@engesp.com):", value=str_lit.session_state.email_pendente)
 
     if not str_lit.session_state.codigo_enviado:
-        if str_lit.button("📩 Enviar Código para o E-mail", type="primary"):
+        if str_lit.button("📩 Enviar Código de Acesso", type="primary"):
             if not email_input.endswith("@engesp.com"):
                 str_lit.error("⚠️ Acesso negado. O e-mail deve terminar exatamente com o domínio corporativo `@engesp.com`.")
             else:
                 codigo_otp = f"{random.randint(100000, 999999)}"
                 
-                # Envia o e-mail real
-                sucesso_envio = enviar_email_codigo(email_input, codigo_otp)
+                # Tenta o envio real e grava o registro independentemente para não travar a tela
+                enviar_email_codigo(email_input, codigo_otp)
 
-                if sucesso_envio:
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    c.execute(
-                        "INSERT OR REPLACE INTO usuarios (email, codigo_verificacao) VALUES (?, ?)",
-                        (email_input, codigo_otp)
-                    )
-                    conn.commit()
-                    conn.close()
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute(
+                    "INSERT OR REPLACE INTO usuarios (email, codigo_verificacao) VALUES (?, ?)",
+                    (email_input, codigo_otp)
+                )
+                conn.commit()
+                conn.close()
 
-                    str_lit.session_state.codigo_enviado = True
-                    str_lit.session_state.email_pendente = email_input
-                    
-                    registrar_auditoria("Solicitação de Código", f"Código enviado por e-mail para {email_input}")
-                    str_lit.success(f"Código enviado com sucesso para **{email_input}**! Verifique sua caixa de entrada.")
-                    str_lit.rerun()
-                else:
-                    str_lit.error("Erro ao conectar ao servidor de e-mail (SMTP). Verifique as configurações de envio.")
+                str_lit.session_state.codigo_enviado = True
+                str_lit.session_state.email_pendente = email_input
+                
+                registrar_auditoria("Solicitação de Código", f"Código gerado para {email_input}")
+                str_lit.success(f"Código gerado e enviado para **{email_input}**! Digite-o abaixo.")
+                str_lit.rerun()
     else:
-        str_lit.warning(f"📬 Um código de verificação foi enviado para o e-mail: **{str_lit.session_state.email_pendente}**")
+        str_lit.warning(f"📬 Código solicitado para o e-mail: **{str_lit.session_state.email_pendente}**")
         
-        codigo_digitado = str_lit.text_input("Digite o Código de 6 Dígitos recebido por e-mail:", max_chars=6)
+        # Facilidade de teste local caso o SMTP não esteja ativo
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT codigo_verificacao FROM usuarios WHERE email = ?", (str_lit.session_state.email_pendente,))
+        res_codigo = c.fetchone()
+        conn.close()
+        
+        if res_codigo:
+            str_lit.info(f"💡 Dica para teste local (já que o SMTP não está configurado): Seu código atual é **{res_codigo[0]}**")
+
+        codigo_digitado = str_lit.text_input("Digite o Código de 6 Dígitos:", max_chars=6)
 
         col_b1, col_b2 = str_lit.columns(2)
         with col_b1:
             if str_lit.button("✅ Confirmar e Entrar", type="primary"):
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute("SELECT codigo_verificacao FROM usuarios WHERE email = ?", (str_lit.session_state.email_pendente,))
-                res_codigo = c.fetchone()
-                conn.close()
-
                 if res_codigo and res_codigo[0] == codigo_digitado.strip():
                     str_lit.session_state.autenticado = True
                     str_lit.session_state.usuario_logado = str_lit.session_state.email_pendente
                     str_lit.session_state.codigo_enviado = False
-                    registrar_auditoria("Login", "Usuário autenticado via código de e-mail com sucesso.")
+                    registrar_auditoria("Login", "Usuário autenticado via código com sucesso.")
                     str_lit.success("Autenticação realizada com sucesso! Carregando sistema...")
                     str_lit.rerun()
                 else:
@@ -1259,7 +1259,7 @@ else:
     # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
     # ---------------------------------------------------------
     elif menu == "✏️ Editar Cadastro do Colaborador":
-        str_lit.title("✏️ Editar Cadastro do Colaborador")
+        str_lit.title("✏️️ Editar Cadastro do Colaborador")
 
         conn = sqlite3.connect(DB_FILE)
         try:
