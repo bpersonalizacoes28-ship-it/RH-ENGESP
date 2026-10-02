@@ -490,7 +490,7 @@ if not str_lit.session_state.autenticado:
                         str_lit.success("Senha alterada com sucesso! Acesse pela aba 'Entrar'.")
                     else:
                         conn.close()
-                        str_lit.error("⚠️️ E-mail não encontrado no banco de dados.")
+                        str_lit.error("⚠️ E-mail não encontrado no banco de dados.")
 
 else:
     # =========================================================
@@ -764,12 +764,11 @@ else:
                             nome_col_chave = colunas_map_normalizado.get("NOME", colunas_map_normalizado.get("EMPREGADO", colunas_map_normalizado.get("FUNCIONÁRIO", None)))
                             nome_v = str(r.get(nome_col_chave, f"Colaborador {mat}")).strip() if nome_col_chave else f"Colaborador {mat}"
 
-                            c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
+                            c.execute("SELECT id, status_colaborador FROM colaboradores WHERE matricula = ?", (mat,))
                             existe = c.fetchone()
 
-                            st_colab = 'Demitido' if subtipo_v.lower() in ["demissão", "demissao"] else 'Ativo'
-
                             if existe:
+                                st_atual = existe[1] if existe[1] else 'Ativo'
                                 c.execute(
                                     """
                                     UPDATE colaboradores 
@@ -778,7 +777,7 @@ else:
                                         tipo_contratacao = ?, filial_id = ?, status_colaborador = ?
                                     WHERE matricula = ?
                                 """,
-                                    (nome_v, tipo_v, subtipo_v, dt_mov_v, cargo_v, dt_adm_v, cpf_v, rg_v, obs_v, tipo_contr_v, filial_id_destino, st_colab, mat)
+                                    (nome_v, tipo_v, subtipo_v, dt_mov_v, cargo_v, dt_adm_v, cpf_v, rg_v, obs_v, tipo_contr_v, filial_id_destino, st_atual, mat)
                                 )
                                 atualizados += 1
                             else:
@@ -788,9 +787,9 @@ else:
                                         matricula, nome, tipo_movimentacao, subtipo_movimentacao, data_movimentacao, 
                                         funcao, data_contratacao, cpf, rg, observacoes, tipo_contratacao, 
                                         filial_id, status_colaborador, cnpj_empresa
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Ativo', ?)
                                 """,
-                                    (mat, nome_v, tipo_v, subtipo_v, dt_mov_v, cargo_v, dt_adm_v, cpf_v, rg_v, obs_v, tipo_contr_v, filial_id_destino, st_colab, CNPJ_PADRAO)
+                                    (mat, nome_v, tipo_v, subtipo_v, dt_mov_v, cargo_v, dt_adm_v, cpf_v, rg_v, obs_v, tipo_contr_v, filial_id_destino, CNPJ_PADRAO)
                                 )
                                 inseridos += 1
 
@@ -901,7 +900,7 @@ else:
     # ---------------------------------------------------------
     elif menu == "👥 Colaboradores":
         str_lit.title("👥 Resumo Consolidado de Colaboradores")
-        str_lit.info("Visualização unificada. Altere o SUBTIPO para 'Demissão' para mover automaticamente o colaborador para a aba de demitidos.")
+        str_lit.info("Selecione os colaboradores na aba de Ativos e clique em 'Enviar para Demitidos' quando necessário.")
 
         aba_ativos, aba_demitidos = str_lit.tabs(["🟢 Colaboradores Ativos", "🔴 Colaboradores Demitidos"])
 
@@ -914,7 +913,7 @@ else:
             conn.close()
 
             if df_filiais_colab.empty:
-                str_lit.warning("⚠️ Nenhuma filial cadastrada no sistema.")
+                str_lit.warning("⚠️️ Nenhuma filial cadastrada no sistema.")
             else:
                 lista_nomes_f = ["Todas as Filiais"] + df_filiais_colab["nome"].tolist()
                 filial_escolhida_colab_mod = str_lit.selectbox("🏢 Selecione a Filial (Ativos):", lista_nomes_f, key="sel_filial_ativos")
@@ -929,7 +928,7 @@ else:
                                    c.data_contratacao as "DATA ADMISSÃO", c.cpf as "CPF", c.rg as "RG",
                                    c.observacoes as "OBSERVAÇÕES", c.tipo_contratacao as "TIPO DE CONTRATAÇÃO",
                                    c.he_50 as "HE 50%", c.he_100 as "HE 100%", c.periculosidade as "PERICULOSIDADE",
-                                   c.ajuda_custo as "AJUDA DE CUSTO (R$)", c.status_colaborador as "STATUS", c.filial_id
+                                   c.ajuda_custo as "AJUDA DE CUSTO (R$)", c.filial_id
                             FROM colaboradores c
                             LEFT JOIN filiais f ON c.filial_id = f.id
                             WHERE c.status_colaborador = 'Ativo'
@@ -945,7 +944,7 @@ else:
                                    c.data_contratacao as "DATA ADMISSÃO", c.cpf as "CPF", c.rg as "RG",
                                    c.observacoes as "OBSERVAÇÕES", c.tipo_contratacao as "TIPO DE CONTRATAÇÃO",
                                    c.he_50 as "HE 50%", c.he_100 as "HE 100%", c.periculosidade as "PERICULOSIDADE",
-                                   c.ajuda_custo as "AJUDA DE CUSTO (R$)", c.status_colaborador as "STATUS", c.filial_id
+                                   c.ajuda_custo as "AJUDA DE CUSTO (R$)", c.filial_id
                             FROM colaboradores c
                             LEFT JOIN filiais f ON c.filial_id = f.id
                             WHERE c.filial_id = ? AND c.status_colaborador = 'Ativo'
@@ -971,17 +970,18 @@ else:
                         proximas_folgas.append(pf)
                     df_res.insert(3, "PRÓXIMA FOLGA DE CAMPO", proximas_folgas)
 
-                    df_para_editar = df_res.drop(columns=["filial_id", "STATUS"]).copy()
+                    df_res.insert(0, "Demitir?", False)
+                    df_para_editar = df_res.drop(columns=["filial_id"]).copy()
 
-                    str_lit.write("Edite os dados abaixo (mude o SUBTIPO para 'Demissão' para classificar como demitido):")
+                    str_lit.write("Selecione os colaboradores na caixa **Demitir?** e clique no botão abaixo para movê-los para a aba de demitidos:")
                     
                     df_editado_colab = str_lit.data_editor(
                         df_para_editar,
                         column_config={
+                            "Demitir?": str_lit.column_config.CheckboxColumn("Demitir?", required=True),
                             "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
                             "FILIAL": str_lit.column_config.TextColumn("FILIAL", disabled=True),
                             "PRÓXIMA FOLGA DE CAMPO": str_lit.column_config.TextColumn("PRÓXIMA FOLGA DE CAMPO", disabled=True),
-                            "SUBTIPO": str_lit.column_config.SelectboxColumn("SUBTIPO", options=["Admissão", "Alocação", "Transferência", "Demissão"], required=True),
                             "TIPO DE CONTRATAÇÃO": str_lit.column_config.SelectboxColumn("TIPO DE CONTRATAÇÃO", options=["CLT", "PJ"], required=True),
                             "PERICULOSIDADE": str_lit.column_config.SelectboxColumn("PERICULOSIDADE", options=["Sim", "Não"], required=True),
                             "AJUDA DE CUSTO (R$)": str_lit.column_config.NumberColumn("AJUDA DE CUSTO (R$)", format="R$ %.2f"),
@@ -992,29 +992,50 @@ else:
                         use_container_width=True,
                     )
 
-                    if str_lit.button("💾 Salvar Alterações dos Ativos", type="primary"):
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        for _, row in df_editado_colab.iterrows():
-                            mat = row["MATRÍCULA"]
-                            subt_v = row["SUBTIPO"]
-                            st_v = 'Demitido' if subt_v.lower() in ["demissão", "demissao"] else 'Ativo'
-                            c.execute("""
-                                UPDATE colaboradores 
-                                SET nome = ?, tipo_movimentacao = ?, subtipo_movimentacao = ?, data_movimentacao = ?,
-                                    funcao = ?, data_contratacao = ?, cpf = ?, rg = ?, observacoes = ?,
-                                    tipo_contratacao = ?, periculosidade = ?, ajuda_custo = ?, status_colaborador = ?
-                                WHERE matricula = ?
-                            """, (
-                                row["NOME COMPLETO"], row["TIPO"], subt_v, parse_data_rigorosa(row["DATA MOVIMENTAÇÃO"]),
-                                row["CARGO"], parse_data_rigorosa(row["DATA ADMISSÃO"]), formatar_cpf(row["CPF"]), row["RG"],
-                                row["OBSERVAÇÕES"], row["TIPO DE CONTRATAÇÃO"], row["PERICULOSIDADE"], row["AJUDA DE CUSTO (R$)"], st_v, mat
-                            ))
-                        conn.commit()
-                        conn.close()
-                        registrar_auditoria("Edição Resumo Colaboradores", "Atualizou dados consolidados dos colaboradores.")
-                        str_lit.success("Alterações salvas com sucesso!")
-                        str_lit.rerun()
+                    c_b_salvar, c_b_demitir = str_lit.columns(2)
+                    with c_b_salvar:
+                        if str_lit.button("💾 Salvar Alterações dos Ativos", type="primary"):
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            for _, row in df_editado_colab.iterrows():
+                                mat = row["MATRÍCULA"]
+                                c.execute("""
+                                    UPDATE colaboradores 
+                                    SET nome = ?, tipo_movimentacao = ?, subtipo_movimentacao = ?, data_movimentacao = ?,
+                                        funcao = ?, data_contratacao = ?, cpf = ?, rg = ?, observacoes = ?,
+                                        tipo_contratacao = ?, periculosidade = ?, ajuda_custo = ?
+                                    WHERE matricula = ?
+                                """, (
+                                    row["NOME COMPLETO"], row["TIPO"], row["SUBTIPO"], parse_data_rigorosa(row["DATA MOVIMENTAÇÃO"]),
+                                    row["CARGO"], parse_data_rigorosa(row["DATA ADMISSÃO"]), formatar_cpf(row["CPF"]), row["RG"],
+                                    row["OBSERVAÇÕES"], row["TIPO DE CONTRATAÇÃO"], row["PERICULOSIDADE"], row["AJUDA DE CUSTO (R$)"], mat
+                                ))
+                            conn.commit()
+                            conn.close()
+                            registrar_auditoria("Edição Resumo Colaboradores", "Atualizou dados consolidados dos colaboradores.")
+                            str_lit.success("Alterações salvas com sucesso!")
+                            str_lit.rerun()
+
+                    with c_b_demitir:
+                        if str_lit.button("🔴 Enviar Selecionados para Colaboradores Demitidos", type="secondary"):
+                            matriculas_para_demitir = df_editado_colab[df_editado_colab["Demitir?"] == True]["MATRÍCULA"].tolist()
+                            if not matriculas_para_demitir:
+                                str_lit.error("Nenhum colaborador selecionado para demissão.")
+                            else:
+                                conn = sqlite3.connect(DB_FILE)
+                                c = conn.cursor()
+                                dt_hoje_str = date.today().strftime("%Y-%m-%d")
+                                for mat_d in matriculas_para_demitir:
+                                    c.execute("""
+                                        UPDATE colaboradores 
+                                        SET status_colaborador = 'Demitido', data_demissao = ?
+                                        WHERE matricula = ?
+                                    """, (dt_hoje_str, mat_d))
+                                conn.commit()
+                                conn.close()
+                                registrar_auditoria("Demissão em Lote", f"Moveu {len(matriculas_para_demitir)} para demitidos.")
+                                str_lit.success(f"{len(matriculas_para_demitir)} colaborador(es) movido(s) para a aba de demitidos com sucesso!")
+                                str_lit.rerun()
 
         with aba_demitidos:
             str_lit.subheader("🔴 Colaboradores Demitidos (Separados da Lista Principal)")
@@ -1022,11 +1043,11 @@ else:
             try:
                 query_dem = """
                     SELECT c.matricula as "MATRÍCULA", c.nome as "NOME COMPLETO", f.nome as "FILIAL",
-                           c.funcao as "CARGO", c.data_contratacao as "DATA ADMISSÃO", c.cpf as "CPF", 
-                           c.observacoes as "OBSERVAÇÕES", c.tipo_contratacao as "CONTRATAÇÃO"
+                           c.funcao as "CARGO", c.data_contratacao as "DATA ADMISSÃO", c.data_demissao as "DATA DEMISSÃO", 
+                           c.cpf as "CPF", c.observacoes as "OBSERVAÇÕES", c.tipo_contratacao as "CONTRATAÇÃO"
                     FROM colaboradores c
                     LEFT JOIN filiais f ON c.filial_id = f.id
-                    WHERE c.status_colaborador = 'Demitido' OR c.subtipo_movimentacao LIKE '%Demiss%'
+                    WHERE c.status_colaborador = 'Demitido'
                     ORDER BY c.nome
                 """
                 df_dem = pd.read_sql_query(query_dem, conn)
@@ -1037,11 +1058,44 @@ else:
             if df_dem.empty:
                 str_lit.info("ℹ️ Nenhum colaborador demitido registrado no momento.")
             else:
-                if "DATA ADMISSÃO" in df_dem.columns:
-                    df_dem["DATA ADMISSÃO"] = df_dem["DATA ADMISSÃO"].apply(formatar_data_br)
+                for col_d in ["DATA ADMISSÃO", "DATA DEMISSÃO"]:
+                    if col_d in df_dem.columns:
+                        df_dem[col_d] = df_dem[col_d].apply(formatar_data_br)
                 if "CPF" in df_dem.columns:
                     df_dem["CPF"] = df_dem["CPF"].apply(formatar_cpf)
-                str_lit.dataframe(df_dem, use_container_width=True)
+
+                str_lit.write("Edite diretamente as datas de demissão ou informações abaixo e clique em salvar:")
+                
+                df_editado_dem = str_lit.data_editor(
+                    df_dem,
+                    column_config={
+                        "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
+                        "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
+                        "FILIAL": str_lit.column_config.TextColumn("FILIAL", disabled=True),
+                        "CARGO": str_lit.column_config.TextColumn("CARGO", disabled=True),
+                        "DATA ADMISSÃO": str_lit.column_config.TextColumn("DATA ADMISSÃO", disabled=True),
+                        "DATA DEMISSÃO": str_lit.column_config.TextColumn("DATA DEMISSÃO (DD/MM/AAAA)", required=True),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+                if str_lit.button("💾 Salvar Alterações dos Demitidos", type="primary"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    for _, row in df_editado_dem.iterrows():
+                        mat = row["MATRÍCULA"]
+                        dt_dem_valida = parse_data_rigorosa(row["DATA DEMISSÃO"])
+                        c.execute("""
+                            UPDATE colaboradores 
+                            SET data_demissao = ?
+                            WHERE matricula = ?
+                        """, (dt_dem_valida, mat))
+                    conn.commit()
+                    conn.close()
+                    registrar_auditoria("Edição Demitidos", "Atualizou datas de demissão.")
+                    str_lit.success("Datas de demissão salvas com sucesso!")
+                    str_lit.rerun()
 
     # ---------------------------------------------------------
     # MÓDULO 6: NOVO COLABORADOR / ADMISSÃO
@@ -1058,7 +1112,7 @@ else:
 
             c_t1, c_t2, c_t3 = str_lit.columns(3)
             tipo_mov = c_t1.selectbox("Tipo *", options=["Entrada", "Saída"])
-            subtipo_mov = c_t2.selectbox("Subtipo *", options=["Admissão", "Alocação", "Transferência", "Demissão"])
+            subtipo_mov = c_t2.text_input("Subtipo *", value="Admissão")
             data_mov = c_t3.date_input("Data da Movimentação *", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
             c3, c4, c5 = str_lit.columns(3)
@@ -1081,7 +1135,6 @@ else:
                     str_lit.error("Preencha Empregado e Matrícula.")
                 else:
                     try:
-                        st_c = 'Demitido' if subtipo_mov.lower() in ["demissão", "demissao"] else 'Ativo'
                         conn = sqlite3.connect(DB_FILE)
                         c = conn.cursor()
                         c.execute("""
@@ -1089,11 +1142,11 @@ else:
                                 matricula, nome, tipo_movimentacao, subtipo_movimentacao, data_movimentacao,
                                 funcao, data_contratacao, cpf, rg, observacoes, tipo_contratacao,
                                 periculosidade, ajuda_custo, filial_id, status_colaborador, cnpj_empresa
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Ativo', ?)
                         """, (
                             matricula, empregado, tipo_mov, subtipo_mov, str(data_mov), cargo, str(data_admissao),
                             formatar_cpf(cpf), rg, observacoes, tipo_contratacao, periculosidade_in, ajuda_custo_in,
-                            filiais_nome_para_id[filial_nome], st_c, CNPJ_PADRAO
+                            filiais_nome_para_id[filial_nome], CNPJ_PADRAO
                         ))
                         conn.commit()
                         conn.close()
@@ -1106,7 +1159,7 @@ else:
     # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR (COM FILTRO POR FILIAL)
     # ---------------------------------------------------------
     elif menu == "✏️ Editar Cadastro do Colaborador":
-        str_lit.title("✏️️ Editar Cadastro Individual do Colaborador")
+        str_lit.title("✏️ Editar Cadastro Individual do Colaborador")
         
         conn = sqlite3.connect(DB_FILE)
         try:
@@ -1166,7 +1219,7 @@ else:
                                 str_lit.rerun()
 
     # ---------------------------------------------------------
-    # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO (CORRIGIDO)
+    # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
     # ---------------------------------------------------------
     elif menu == "💳 Pedido Saldo Alimentação":
         str_lit.title("💳 Gestão, Pedido e Histórico de Saldo Alimentação / VA")
