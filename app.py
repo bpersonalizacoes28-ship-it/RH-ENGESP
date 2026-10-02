@@ -98,6 +98,7 @@ def init_db():
             cnpj TEXT
         )
     """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS colaboradores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,47 +109,37 @@ def init_db():
             funcao TEXT,
             cnpj_empresa TEXT,
             filial_id INTEGER,
-            data_nascimento DATE,
             data_contratacao DATE,
-            data_retorno_folga DATE,
-            intervalo_folga_dias INTEGER,
-            proxima_folga DATE,
-            he_50 REAL DEFAULT 0,
-            he_100 REAL DEFAULT 0,
-            saldo_cartao_alimentacao REAL DEFAULT 0,
-            premiacao REAL DEFAULT 0,
-            mobilidade REAL DEFAULT 0,
-            alimentacao REAL DEFAULT 0,
-            status_aso TEXT,
-            doc_pessoais TEXT,
-            doc_preadmissionais TEXT,
-            doc_admissionais TEXT,
-            tipo_usuario_va TEXT DEFAULT 'Já Usuário',
-            motivo_retorno TEXT DEFAULT 'Folga',
-            status_solicitacao_va TEXT DEFAULT 'Normal / Atualizado',
+            tipo_contratacao TEXT DEFAULT 'CLT',
             status_colaborador TEXT DEFAULT 'Ativo',
             data_demissao DATE,
             tipo_movimentacao TEXT DEFAULT 'Entrada',
             subtipo_movimentacao TEXT DEFAULT 'Admissão',
             data_movimentacao DATE,
             observacoes TEXT,
-            tipo_contratacao TEXT DEFAULT 'CLT',
+            he_50 REAL DEFAULT 0,
+            he_100 REAL DEFAULT 0,
+            periculosidade TEXT DEFAULT 'Não',
+            ajuda_custo REAL DEFAULT 0,
+            premiacao REAL DEFAULT 0,
+            mobilidade REAL DEFAULT 0,
+            alimentacao REAL DEFAULT 0,
+            tipo_usuario_va TEXT DEFAULT 'Já Usuário',
             FOREIGN KEY (filial_id) REFERENCES filiais (id)
         )
     """)
 
+    # Garante colunas caso o banco já exista
     novas_colunas = [
+        ("periculosidade", "TEXT DEFAULT 'Não'"),
+        ("ajuda_custo", "REAL DEFAULT 0"),
+        ("tipo_contratacao", "TEXT DEFAULT 'CLT'"),
         ("status_colaborador", "TEXT DEFAULT 'Ativo'"),
         ("data_demissao", "DATE"),
         ("tipo_movimentacao", "TEXT DEFAULT 'Entrada'"),
         ("subtipo_movimentacao", "TEXT DEFAULT 'Admissão'"),
         ("data_movimentacao", "DATE"),
         ("observacoes", "TEXT"),
-        ("tipo_contratacao", "TEXT DEFAULT 'CLT'"),
-        ("premiacao", "REAL DEFAULT 0"),
-        ("mobilidade", "REAL DEFAULT 0"),
-        ("alimentacao", "REAL DEFAULT 0"),
-        ("tipo_usuario_va", "TEXT DEFAULT 'Já Usuário'"),
         ("he_50", "REAL DEFAULT 0"),
         ("he_100", "REAL DEFAULT 0"),
     ]
@@ -171,11 +162,6 @@ def init_db():
             FOREIGN KEY (filial_id) REFERENCES filiais (id)
         )
     """)
-
-    try:
-        c.execute("ALTER TABLE historico_colaboradores ADD COLUMN filial_id INTEGER")
-    except Exception:
-        pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS historico_pedidos_va (
@@ -213,7 +199,7 @@ def init_db():
             filial_id INTEGER PRIMARY KEY,
             nome_arquivo TEXT,
             data_importacao DATETIME,
-            arquivo_blob BLOB,
+            dados_json TEXT,
             FOREIGN KEY (filial_id) REFERENCES filiais (id)
         )
     """)
@@ -269,7 +255,6 @@ def registrar_historico(matricula, tipo, antigo, novo):
     if str(antigo).strip() != str(novo).strip():
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        
         c.execute("SELECT filial_id FROM colaboradores WHERE matricula = ?", (matricula,))
         res = c.fetchone()
         filial_id_colab = res[0] if res and res[0] is not None else None
@@ -290,7 +275,6 @@ def registrar_historico(matricula, tipo, antigo, novo):
         )
         conn.commit()
         conn.close()
-        registrar_auditoria("Histórico Colaborador", f"Matrícula {matricula} - {tipo}: {antigo} para {novo}")
 
 
 def parse_data_rigorosa(valor):
@@ -332,7 +316,7 @@ def parse_data_rigorosa(valor):
 
 
 def formatar_data_br(valor):
-    if not valor or pd.isna(valor):
+    if not valor or pd.isna(valor) or str(valor).strip() in ["", "None", "nan", "NaT"]:
         return ""
     dt_str = parse_data_rigorosa(valor)
     try:
@@ -420,6 +404,36 @@ def get_cargos_cadastrados():
         cargos = []
     conn.close()
     return cargos
+
+
+def calcular_ultima_folga_colaborador(f_id, matricula):
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        df_f = pd.read_sql_query(
+            "SELECT dados_json FROM folga_campo_recesso WHERE filial_id = ?",
+            conn, params=(f_id,)
+        )
+    except Exception:
+        df_f = pd.DataFrame()
+    conn.close()
+
+    if df_f.empty or not df_f.iloc[0]["dados_json"]:
+        return "Nenhuma"
+
+    try:
+        registros = json.loads(df_f.iloc[0]["dados_json"])
+        for reg in registros:
+            if str(reg.get("MATRÍCULA", "")) == str(matricula):
+                colunas_datas = ["1° FOLGA", "CHEGOU DA 1° FOLGA", "2° FOLGA", "CHEGOU DA 2° FOLGA", "3° FOLGA"]
+                ultima_valida = ""
+                for col in colunas_datas:
+                    val = str(reg.get(col, "")).strip()
+                    if val and val not in ["None", "nan", "-"]:
+                        ultima_valida = val
+                return ultima_valida if ultima_valida else "Nenhuma"
+    except Exception:
+        pass
+    return "Nenhuma"
 
 
 # =========================================================
@@ -605,36 +619,8 @@ else:
             if "CPF" in df.columns:
                 df["CPF"] = df["CPF"].apply(formatar_cpf)
 
-            c1, c2, c3 = str_lit.columns(3)
-            with c1:
-                filtro_tipo = str_lit.multiselect(
-                    "Filtrar por Tipo:", options=df["Tipo"].dropna().unique()
-                )
-            with c2:
-                filtro_subtipo = str_lit.multiselect(
-                    "Filtrar por Subtipo:", options=df["Subtipo"].dropna().unique()
-                )
-            with c3:
-                filtro_status_colab = str_lit.multiselect(
-                    "Filtrar por Status:",
-                    options=df["Status"].dropna().unique(),
-                    default=["Ativo"],
-                )
-
-            df_filtered = df.copy()
-            if filtro_tipo:
-                df_filtered = df_filtered[df_filtered["Tipo"].isin(filtro_tipo)]
-            if filtro_subtipo:
-                df_filtered = df_filtered[
-                    df_filtered["Subtipo"].isin(filtro_subtipo)
-                ]
-            if filtro_status_colab:
-                df_filtered = df_filtered[
-                    df_filtered["Status"].isin(filtro_status_colab)
-                ]
-
-            str_lit.subheader(f"Registros Exibidos ({len(df_filtered)})")
-            str_lit.dataframe(df_filtered, use_container_width=True)
+            str_lit.subheader(f"Registros Exibidos ({len(df)})")
+            str_lit.dataframe(df, use_container_width=True)
 
     # ---------------------------------------------------------
     # MÓDULO 2: CADASTRO DE FILIAIS
@@ -699,16 +685,13 @@ else:
                     f_id_del = filiais_dict_del[filial_para_deletar]
                     conn = sqlite3.connect(DB_FILE)
                     c = conn.cursor()
-                    
                     c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (f_id_del,))
                     c.execute("DELETE FROM importacoes_arquivos WHERE filial_id = ?", (f_id_del,))
                     c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_del,))
                     c.execute("DELETE FROM historico_colaboradores WHERE filial_id = ?", (f_id_del,))
                     c.execute("DELETE FROM filiais WHERE id = ?", (f_id_del,))
-                    
                     conn.commit()
                     conn.close()
-                    
                     registrar_auditoria("Exclusão de Filial", f"Removeu a filial {filial_para_deletar}")
                     str_lit.success(f"Filial '{filial_para_deletar}' e seus dados associados foram excluídos com sucesso!")
                     str_lit.rerun()
@@ -717,10 +700,11 @@ else:
     # MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
     # ---------------------------------------------------------
     elif menu == "📥 Importar Colaboradores por Filial":
-        str_lit.title("📥 Importação Sincronizada e Arquivamento de Planilhas")
+        str_lit.title("📥 Importação de Colaboradores (Formato Exato)")
         str_lit.info(
-            "💡 **Recurso de Arquivamento:** Além de atualizar os colaboradores em tempo real, o sistema "
-            "armazena a última planilha importada para cada filial, permitindo o download dela ou a exclusão da lista a qualquer momento."
+            "💡 **Ordem obrigatória dos campos na planilha importada:**\n"
+            "1. `MATRÍCULA` | 2. `TIPO` | 3. `SUBTIPO` | 4. `DATA MOVIMENTAÇÃO` | 5. `CARGO` | "
+            "6. `DATA ADMISSÃO` | 7. `CPF` | 8. `RG` | 9. `OBSERVAÇÕES` | 10. `TIPO DE CONTRATAÇÃO` (CLT ou PJ)"
         )
 
         f_map_atual, _ = get_filiais_dict()
@@ -732,7 +716,6 @@ else:
                 "Selecione a Filial de Destino da Importação:",
                 options=list(f_map_atual.keys()),
             )
-            
             filial_id_atual = f_map_atual[filial_imp]
 
             conn = sqlite3.connect(DB_FILE)
@@ -747,7 +730,7 @@ else:
 
             if not df_arq_salvo.empty:
                 row_arq = df_arq_salvo.iloc[0]
-                str_lit.success(f"📂 **Última planilha arquivada para esta filial:** `{row_arq['nome_arquivo']}` (Importada em: {row_arq['data_importacao']})")
+                str_lit.success(f"📂 **Planilha de colaboradores arquivada:** `{row_arq['nome_arquivo']}` (Importada em: {row_arq['data_importacao']})")
                 
                 col_dl, col_del = str_lit.columns(2)
                 with col_dl:
@@ -767,13 +750,13 @@ else:
                         conn.commit()
                         conn.close()
                         registrar_auditoria("Limpeza de Filial", f"Apagou colaboradores da filial {filial_imp}")
-                        str_lit.success(f"Todos os colaboradores e a planilha arquivada da filial '{filial_imp}' foram apagados com sucesso!")
+                        str_lit.success(f"Todos os colaboradores da filial '{filial_imp}' foram apagados!")
                         str_lit.rerun()
 
                 str_lit.markdown("---")
 
             arquivo_upload = str_lit.file_uploader(
-                "Envie uma nova planilha para atualizar (Excel .xlsx, .xls, .xlsm ou CSV):",
+                "Envie a planilha (Excel .xlsx, .xls, .xlsm ou CSV):",
                 type=["xlsx", "xls", "xlsm", "csv"],
             )
 
@@ -782,73 +765,75 @@ else:
                     nome_arq = arquivo_upload.name
                     bytes_arquivo = arquivo_upload.getvalue()
                     
-                    nome_arq_lower = nome_arq.lower()
-                    if nome_arq_lower.endswith(".csv"):
+                    if nome_arq.lower().endswith(".csv"):
                         df_imp = pd.read_csv(io.BytesIO(bytes_arquivo))
                     else:
                         df_imp = pd.read_excel(io.BytesIO(bytes_arquivo), engine="openpyxl")
 
-                    df_imp.columns = [str(col).strip().lower() for col in df_imp.columns]
-
+                    # Padroniza mapeamento de colunas
+                    colunas_map_normalizado = {str(c).strip().upper(): c for c in df_imp.columns}
+                    
                     str_lit.write(f"Pré-visualização dos dados importados ({len(df_imp)} registros encontrados):")
                     str_lit.dataframe(df_imp.head(), use_container_width=True)
 
-                    if str_lit.button("🚀 Processar, Arquivar Planilha e Salvar Permanentemente"):
+                    if str_lit.button("🚀 Processar e Salvar Dados nos Campos Correspondentes"):
                         conn = sqlite3.connect(DB_FILE)
                         c = conn.cursor()
                         
                         inseridos = 0
                         atualizados = 0
-                        
                         f_dict_recarregado, _ = get_filiais_dict()
                         filial_id_destino = f_dict_recarregado.get(filial_imp)
 
                         for _, r in df_imp.iterrows():
-                            mat = str(r.get("matrícula", r.get("matricula", r.get("mat", "")))).strip()
-                            nome = str(r.get("nome", r.get("empregado", r.get("funcionário", "")))).strip()
-                            
-                            if mat and mat.lower() != "nan" and nome and nome.lower() != "nan":
-                                cpf_val = formatar_cpf(r.get("cpf", ""))
-                                rg_val = str(r.get("rg", "")).strip()
-                                cargo_val = str(r.get("cargo", r.get("funcao", ""))).strip()
-                                
-                                c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
-                                existe = c.fetchone()
-                                
-                                if existe:
-                                    c.execute(
-                                        """
-                                        UPDATE colaboradores 
-                                        SET nome = ?, cpf = ?, rg = ?, funcao = ?, filial_id = ?, cnpj_empresa = ?, 
-                                            status_colaborador = 'Ativo', tipo_movimentacao = 'Entrada', 
-                                            subtipo_movimentacao = 'Atualização/Alocação', data_movimentacao = ?
-                                        WHERE matricula = ?
-                                    """,
-                                        (nome, cpf_val, rg_val, cargo_val, filial_id_destino, CNPJ_PADRAO, str(date.today()), mat)
-                                    )
-                                    atualizados += 1
-                                else:
-                                    c.execute(
-                                        """
-                                        INSERT INTO colaboradores (
-                                            matricula, nome, cpf, rg, funcao, cnpj_empresa, 
-                                            filial_id, status_colaborador, tipo_contratacao, 
-                                            tipo_movimentacao, subtipo_movimentacao, data_movimentacao
-                                        )
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo', 'CLT', 'Entrada', 'Admissão', ?)
-                                    """,
-                                        (
-                                            mat,
-                                            nome,
-                                            cpf_val,
-                                            rg_val,
-                                            cargo_val,
-                                            CNPJ_PADRAO,
-                                            filial_id_destino,
-                                            str(date.today()),
-                                        ),
-                                    )
-                                    inseridos += 1
+                            # Busca chaves flexíveis respeitando a ordem solicitada
+                            mat = str(r.get(colunas_map_normalizado.get("MATRÍCULA", "matricula"), r.get("MATRICULA", ""))).strip()
+                            if not mat or mat.lower() == "nan":
+                                continue
+
+                            tipo_v = str(r.get(colunas_map_normalizado.get("TIPO", "tipo"), "Entrada")).strip()
+                            subtipo_v = str(r.get(colunas_map_normalizado.get("SUBTIPO", "subtipo"), "Admissão")).strip()
+                            dt_mov_v = parse_data_rigorosa(r.get(colunas_map_normalizado.get("DATA MOVIMENTAÇÃO", "data movimentacao"), date.today()))
+                            cargo_v = str(r.get(colunas_map_normalizado.get("CARGO", "cargo"), "")).strip()
+                            dt_adm_v = parse_data_rigorosa(r.get(colunas_map_normalizado.get("DATA ADMISSÃO", "data admissao"), date.today()))
+                            cpf_v = formatar_cpf(r.get(colunas_map_normalizado.get("CPF", "cpf"), ""))
+                            rg_v = str(r.get(colunas_map_normalizado.get("RG", "rg"), "")).strip()
+                            obs_v = str(r.get(colunas_map_normalizado.get("OBSERVAÇÕES", "observacoes"), "")).strip()
+                            tipo_contr_v = str(r.get(colunas_map_normalizado.get("TIPO DE CONTRATAÇÃO", "tipo de contratacao"), "CLT")).strip()
+                            if tipo_contr_v not in ["CLT", "PJ"]:
+                                tipo_contr_v = "CLT"
+
+                            # Tenta extrair nome se houver coluna correspondente ou usa matrícula como fallback
+                            nome_col_chave = colunas_map_normalizado.get("NOME", colunas_map_normalizado.get("EMPREGADO", colunas_map_normalizado.get("FUNCIONÁRIO", None)))
+                            nome_v = str(r.get(nome_col_chave, f"Colaborador {mat}")).strip() if nome_col_chave else f"Colaborador {mat}"
+
+                            c.execute("SELECT id FROM colaboradores WHERE matricula = ?", (mat,))
+                            existe = c.fetchone()
+
+                            if existe:
+                                c.execute(
+                                    """
+                                    UPDATE colaboradores 
+                                    SET nome = ?, tipo_movimentacao = ?, subtipo_movimentacao = ?, data_movimentacao = ?, 
+                                        funcao = ?, data_contratacao = ?, cpf = ?, rg = ?, observacoes = ?, 
+                                        tipo_contratacao = ?, filial_id = ?, status_colaborador = 'Ativo'
+                                    WHERE matricula = ?
+                                """,
+                                    (nome_v, tipo_v, subtipo_v, dt_mov_v, cargo_v, dt_adm_v, cpf_v, rg_v, obs_v, tipo_contr_v, filial_id_destino, mat)
+                                )
+                                atualizados += 1
+                            else:
+                                c.execute(
+                                    """
+                                    INSERT INTO colaboradores (
+                                        matricula, nome, tipo_movimentacao, subtipo_movimentacao, data_movimentacao, 
+                                        funcao, data_contratacao, cpf, rg, observacoes, tipo_contratacao, 
+                                        filial_id, status_colaborador, cnpj_empresa
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Ativo', ?)
+                                """,
+                                    (mat, nome_v, tipo_v, subtipo_v, dt_mov_v, cargo_v, dt_adm_v, cpf_v, rg_v, obs_v, tipo_contr_v, filial_id_destino, CNPJ_PADRAO)
+                                )
+                                inseridos += 1
 
                         c.execute("""
                             INSERT OR REPLACE INTO importacoes_arquivos (filial_id, nome_arquivo, data_importacao, arquivo_blob)
@@ -857,11 +842,8 @@ else:
 
                         conn.commit()
                         conn.close()
-                        
-                        registrar_auditoria("Importação de Colaboradores", f"Filial {filial_imp}: {inseridos} novos, {atualizados} atualizados.")
-                        str_lit.success(
-                            f"Importação realizada e planilha arquivada com sucesso! 🟢 Novos cadastrados: {inseridos} | 🔄 Atualizados/Alocados: {atualizados}."
-                        )
+                        registrar_auditoria("Importação Colaboradores", f"Filial {filial_imp}: {inseridos} novos, {atualizados} atualizados.")
+                        str_lit.success(f"Importação realizada com sucesso! Novos: {inseridos} | Atualizados: {atualizados}")
                         str_lit.rerun()
                 except Exception as e:
                     str_lit.error(f"Erro ao processar arquivo: {e}")
@@ -933,16 +915,13 @@ else:
                         format="DD/MM/YYYY",
                     )
                     
-                    str_lit.info(f"Total de colaboradores selecionados para transferência: **{len(matriculas_selecionadas)}**")
-                    
                     if str_lit.button("🔄 Efetivar e Salvar Transferência", type="primary"):
                         if not matriculas_selecionadas:
-                            str_lit.error("Selecione pelo menos um colaborador na tabela acima marcando a caixa 'Selecionar'.")
+                            str_lit.error("Selecione pelo menos um colaborador na tabela acima.")
                         else:
                             nova_filial_id = filiais_nome_para_id[filial_destino]
                             conn = sqlite3.connect(DB_FILE)
                             c = conn.cursor()
-                            
                             for mat_t in matriculas_selecionadas:
                                 c.execute(
                                     """
@@ -954,32 +933,20 @@ else:
                                 )
                             conn.commit()
                             conn.close()
-                            
-                            for mat_t in matriculas_selecionadas:
-                                registrar_historico(
-                                    mat_t,
-                                    "Transferência de Filial (Lote)",
-                                    filial_origem_sel,
-                                    f"Destino: {filial_destino}",
-                                )
-                            
-                            registrar_auditoria("Transferência em Lote", f"{len(matriculas_selecionadas)} colaboradores transferidos de {filial_origem_sel} para {filial_destino}")
-                            str_lit.success(
-                                f"Sucesso! {len(matriculas_selecionadas)} colaborador(es) transferido(s) e salvos permanentemente!"
-                            )
+                            registrar_auditoria("Transferencia em Lote", f"{len(matriculas_selecionadas)} transferidos para {filial_destino}")
+                            str_lit.success("Transferência realizada com sucesso!")
                             str_lit.rerun()
 
     # ---------------------------------------------------------
-    # MÓDULO 5: COLABORADORES (COM OPÇÕES DE EXCLUSÃO)
+    # MÓDULO 5: COLABORADORES (RESUMO CONSOLIDADO)
     # ---------------------------------------------------------
     elif menu == "👥 Colaboradores":
-        str_lit.title("👥 Gestão de Colaboradores por Filial (Ativos e Demitidos)")
-        
+        str_lit.title("👥 Resumo Consolidado de Colaboradores (Todos os Módulos)")
+        str_lit.info("Visualização unificada contendo dados de importação, horas extras, próxima folga de campo calculada, periculosidade e ajuda de custo.")
+
         conn = sqlite3.connect(DB_FILE)
         try:
-            df_filiais_colab = pd.read_sql_query(
-                "SELECT id, nome FROM filiais ORDER BY nome", conn
-            )
+            df_filiais_colab = pd.read_sql_query("SELECT id, nome FROM filiais ORDER BY nome", conn)
         except Exception:
             df_filiais_colab = pd.DataFrame()
         conn.close()
@@ -988,209 +955,104 @@ else:
             str_lit.warning("⚠️ Nenhuma filial cadastrada.")
         else:
             lista_nomes_f = ["Todas as Filiais"] + df_filiais_colab["nome"].tolist()
-            filial_escolhida_colab_mod = str_lit.selectbox(
-                "🏢 Selecione a Filial:", lista_nomes_f
-            )
+            filial_escolhida_colab_mod = str_lit.selectbox("🏢 Selecione a Filial:", lista_nomes_f)
 
-            aba_ativos, aba_demitidos = str_lit.tabs(["🟢 Colaboradores Ativos", "🔴 Colaboradores Demitidos"])
-
-            with aba_ativos:
-                conn = sqlite3.connect(DB_FILE)
-                try:
-                    if filial_escolhida_colab_mod == "Todas as Filiais":
-                        query_c = """
-                            SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                                   c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-                                   c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-                                   f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-                                   c.status_colaborador as "Status", c.observacoes as "Observações"
-                            FROM colaboradores c
-                            LEFT JOIN filiais f ON c.filial_id = f.id
-                            WHERE c.status_colaborador = 'Ativo'
-                            ORDER BY c.nome
-                        """
-                        df_c_res = pd.read_sql_query(query_c, conn)
-                    else:
-                        f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
-                        query_c = """
-                            SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                                   c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo", 
-                                   c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
-                                   f.nome as "Filial", c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão", 
-                                   c.status_colaborador as "Status", c.observacoes as "Observações"
-                            FROM colaboradores c
-                            LEFT JOIN filiais f ON c.filial_id = f.id
-                            WHERE c.filial_id = ? AND c.status_colaborador = 'Ativo'
-                            ORDER BY c.nome
-                        """
-                        df_c_res = pd.read_sql_query(query_c, conn, params=(f_id_sel,))
-                except Exception:
-                    df_c_res = pd.DataFrame()
-                conn.close()
-
-                if not df_c_res.empty:
-                    df_c_res["CPF"] = df_c_res["CPF"].apply(formatar_cpf)
-                    df_c_res["Data Admissão"] = df_c_res["Data Admissão"].apply(formatar_data_br)
-                    df_c_res["Data Movimentação"] = df_c_res["Data Movimentação"].apply(formatar_data_br)
-
-                str_lit.metric("Total Ativos Listados", len(df_c_res))
-                str_lit.markdown("---")
-
-                if df_c_res.empty:
-                    str_lit.info("Nenhum colaborador ativo encontrado para esta seleção.")
+            conn = sqlite3.connect(DB_FILE)
+            try:
+                if filial_escolhida_colab_mod == "Todas as Filiais":
+                    query_resumo = """
+                        SELECT c.matricula as "MATRÍCULA", c.nome as "NOME COMPLETO", f.nome as "FILIAL",
+                               c.tipo_movimentacao as "TIPO", c.subtipo_movimentacao as "SUBTIPO",
+                               c.data_movimentacao as "DATA MOVIMENTAÇÃO", c.funcao as "CARGO",
+                               c.data_contratacao as "DATA ADMISSÃO", c.cpf as "CPF", c.rg as "RG",
+                               c.observacoes as "OBSERVAÇÕES", c.tipo_contratacao as "TIPO DE CONTRATAÇÃO",
+                               c.he_50 as "HE 50%", c.he_100 as "HE 100%", c.periculosidade as "PERICULOSIDADE",
+                               c.ajuda_custo as "AJUDA DE CUSTO (R$)", c.status_colaborador as "STATUS", c.filial_id
+                        FROM colaboradores c
+                        LEFT JOIN filiais f ON c.filial_id = f.id
+                        WHERE c.status_colaborador = 'Ativo'
+                        ORDER BY c.nome
+                    """
+                    df_res = pd.read_sql_query(query_resumo, conn)
                 else:
-                    df_c_res.insert(0, "Selecionar", False)
+                    f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
+                    query_resumo = """
+                        SELECT c.matricula as "MATRÍCULA", c.nome as "NOME COMPLETO", f.nome as "FILIAL",
+                               c.tipo_movimentacao as "TIPO", c.subtipo_movimentacao as "SUBTIPO",
+                               c.data_movimentacao as "DATA MOVIMENTAÇÃO", c.funcao as "CARGO",
+                               c.data_contratacao as "DATA ADMISSÃO", c.cpf as "CPF", c.rg as "RG",
+                               c.observacoes as "OBSERVAÇÕES", c.tipo_contratacao as "TIPO DE CONTRATAÇÃO",
+                               c.he_50 as "HE 50%", c.he_100 as "HE 100%", c.periculosidade as "PERICULOSIDADE",
+                               c.ajuda_custo as "AJUDA DE CUSTO (R$)", c.status_colaborador as "STATUS", c.filial_id
+                        FROM colaboradores c
+                        LEFT JOIN filiais f ON c.filial_id = f.id
+                        WHERE c.filial_id = ? AND c.status_colaborador = 'Ativo'
+                        ORDER BY c.nome
+                    """
+                    df_res = pd.read_sql_query(query_resumo, conn, params=(f_id_sel,))
+            except Exception:
+                df_res = pd.DataFrame()
+            conn.close()
 
-                    col_sel_todos, _ = str_lit.columns([2, 5])
-                    selecionar_todos = col_sel_todos.checkbox("✅ Selecionar Todos os Colaboradores Ativos", key="chk_sel_todos_ativos")
+            if df_res.empty:
+                str_lit.info("Nenhum colaborador ativo encontrado.")
+            else:
+                # Formata datas e CPFs
+                for col_d in ["DATA MOVIMENTAÇÃO", "DATA ADMISSÃO"]:
+                    if col_d in df_res.columns:
+                        df_res[col_d] = df_res[col_d].apply(formatar_data_br)
+                if "CPF" in df_res.columns:
+                    df_res["CPF"] = df_res["CPF"].apply(formatar_cpf)
 
-                    if selecionar_todos:
-                        df_c_res["Selecionar"] = True
+                # Calcula Próxima Folga de Campo (última data preenchida)
+                proximas_folgas = []
+                for _, r in df_res.iterrows():
+                    pf = calcular_ultima_folga_colaborador(r["filial_id"], r["MATRÍCULA"])
+                    proximas_folgas.append(pf)
+                df_res.insert(3, "PRÓXIMA FOLGA DE CAMPO", proximas_folgas)
 
-                    df_editavel = str_lit.data_editor(
-                        df_c_res,
-                        column_config={
-                            "Selecionar": str_lit.column_config.CheckboxColumn("Selecionar", required=True)
-                        },
-                        hide_index=True,
-                        use_container_width=True,
-                    )
+                # Remove coluna interna de ID auxiliar para exibição
+                df_para_editar = df_res.drop(columns=["filial_id", "STATUS"]).copy()
 
-                    matriculas_selecionadas = df_editavel[
-                        df_editavel["Selecionar"] == True
-                    ]["Matrícula"].tolist()
+                str_lit.write("Edite diretamente as informações desejadas na tabela abaixo e clique em salvar:")
+                
+                df_editado_colab = str_lit.data_editor(
+                    df_para_editar,
+                    column_config={
+                        "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
+                        "FILIAL": str_lit.column_config.TextColumn("FILIAL", disabled=True),
+                        "PRÓXIMA FOLGA DE CAMPO": str_lit.column_config.TextColumn("PRÓXIMA FOLGA DE CAMPO", disabled=True),
+                        "TIPO DE CONTRATAÇÃO": str_lit.column_config.SelectboxColumn("TIPO DE CONTRATAÇÃO", options=["CLT", "PJ"], required=True),
+                        "PERICULOSIDADE": str_lit.column_config.SelectboxColumn("PERICULOSIDADE", options=["Sim", "Não"], required=True),
+                        "AJUDA DE CUSTO (R$)": str_lit.column_config.NumberColumn("AJUDA DE CUSTO (R$)", format="R$ %.2f"),
+                        "HE 50%": str_lit.column_config.NumberColumn("HE 50%", disabled=True),
+                        "HE 100%": str_lit.column_config.NumberColumn("HE 100%", disabled=True),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
 
-                    col_acao1, col_acao2 = str_lit.columns(2)
-                    
-                    with col_acao1:
-                        if matriculas_selecionadas:
-                            str_lit.warning(f"⚠️ **{len(matriculas_selecionadas)}** colaborador(es) selecionado(s).")
-                            data_demissao_lote = str_lit.date_input(
-                                "Data da Demissão:",
-                                value=date.today(),
-                                min_value=MIN_DATE,
-                                max_value=MAX_DATE,
-                                format="DD/MM/YYYY",
-                                key="dt_demissao_lote_input"
-                            )
-
-                            if str_lit.button("🔴 Efetivar Demissão dos Selecionados", type="primary"):
-                                conn = sqlite3.connect(DB_FILE)
-                                c = conn.cursor()
-                                for mat_dem in matriculas_selecionadas:
-                                    c.execute(
-                                        """
-                                        UPDATE colaboradores 
-                                        SET status_colaborador = 'Demitido', data_demissao = ?, 
-                                            tipo_movimentacao = 'Saída', subtipo_movimentacao = 'Demissão', data_movimentacao = ?
-                                        WHERE matricula = ?
-                                    """,
-                                        (str(data_demissao_lote), str(data_demissao_lote), mat_dem),
-                                    )
-                                conn.commit()
-                                conn.close()
-
-                                for mat_dem in matriculas_selecionadas:
-                                    registrar_historico(mat_dem, "Demissão em Lote", "Ativo", "Demitido")
-
-                                registrar_auditoria("Demissão em Lote", f"{len(matriculas_selecionadas)} colaboradores demitidos.")
-                                str_lit.success(f"{len(matriculas_selecionadas)} colaborador(es) marcado(s) como Demitido(s)!")
-                                str_lit.rerun()
-
-                    with col_acao2:
-                        if matriculas_selecionadas:
-                            str_lit.write("") # espaçamento
-                            str_lit.write("")
-                            if str_lit.button("🗑️ Excluir Colaboradores Selecionados", type="secondary"):
-                                conn = sqlite3.connect(DB_FILE)
-                                c = conn.cursor()
-                                for mat_ex in matriculas_selecionadas:
-                                    c.execute("DELETE FROM colaboradores WHERE matricula = ?", (mat_ex,))
-                                    c.execute("DELETE FROM historico_colaboradores WHERE colaborador_matricula = ?", (mat_ex,))
-                                conn.commit()
-                                conn.close()
-                                registrar_auditoria("Exclusão de Colaboradores", f"Excluiu {len(matriculas_selecionadas)} colaboradores.")
-                                str_lit.success(f"{len(matriculas_selecionadas)} colaborador(es) excluído(s) permanentemente do sistema!")
-                                str_lit.rerun()
-
-                    str_lit.markdown("---")
-                    if str_lit.button("🚨 EXCLUIR TODOS OS COLABORADORES DA LISTA ACIMA", type="secondary"):
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        if filial_escolhida_colab_mod == "Todas as Filiais":
-                            c.execute("DELETE FROM colaboradores")
-                        else:
-                            f_id_ex_all = filiais_nome_para_id[filial_escolhida_colab_mod]
-                            c.execute("DELETE FROM colaboradores WHERE filial_id = ?", (f_id_ex_all,))
-                        conn.commit()
-                        conn.close()
-                        registrar_auditoria("Exclusão Geral Colaboradores", f"Excluiu todos os colaboradores da seleção: {filial_escolhida_colab_mod}")
-                        str_lit.success("Todos os colaboradores correspondentes foram excluídos com sucesso!")
-                        str_lit.rerun()
-
-            with aba_demitidos:
-                conn = sqlite3.connect(DB_FILE)
-                try:
-                    if filial_escolhida_colab_mod == "Todas as Filiais":
-                        query_dem = """
-                            SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                                   f.nome as "Filial", c.cpf as "CPF", c.data_contratacao as "Data Admissão", 
-                                   c.data_demissao as "Data Demissão", c.observacoes as "Observações"
-                            FROM colaboradores c
-                            LEFT JOIN filiais f ON c.filial_id = f.id
-                            WHERE c.status_colaborador = 'Demitido'
-                            ORDER BY c.nome
-                        """
-                        df_dem_res = pd.read_sql_query(query_dem, conn)
-                    else:
-                        f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
-                        query_dem = """
-                            SELECT c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
-                                   f.nome as "Filial", c.cpf as "CPF", c.data_contratacao as "Data Admissão", 
-                                   c.data_demissao as "Data Demissão", c.observacoes as "Observações"
-                            FROM colaboradores c
-                            LEFT JOIN filiais f ON c.filial_id = f.id
-                            WHERE c.filial_id = ? AND c.status_colaborador = 'Demitido'
-                            ORDER BY c.nome
-                        """
-                        df_dem_res = pd.read_sql_query(query_dem, conn, params=(f_id_sel,))
-                except Exception:
-                    df_dem_res = pd.DataFrame()
-                conn.close()
-
-                if not df_dem_res.empty:
-                    df_dem_res["CPF"] = df_dem_res["CPF"].apply(formatar_cpf)
-                    df_dem_res["Data Admissão"] = df_dem_res["Data Admissão"].apply(formatar_data_br)
-                    df_dem_res["Data Demissão"] = df_dem_res["Data Demissão"].apply(formatar_data_br)
-
-                str_lit.metric("Total Demitidos Registrados", len(df_dem_res))
-                str_lit.markdown("---")
-
-                if df_dem_res.empty:
-                    str_lit.info("Nenhum colaborador demitido encontrado para esta seleção.")
-                else:
-                    df_dem_res.insert(0, "Selecionar", False)
-                    df_edit_dem = str_lit.data_editor(
-                        df_dem_res,
-                        column_config={
-                            "Selecionar": str_lit.column_config.CheckboxColumn("Selecionar", required=True)
-                        },
-                        hide_index=True,
-                        use_container_width=True,
-                    )
-                    
-                    matriculas_dem_selecionadas = df_edit_dem[df_edit_dem["Selecionar"] == True]["Matrícula"].tolist()
-                    if matriculas_dem_selecionadas:
-                        if str_lit.button("🗑️ Excluir Definitivamente os Demitidos Selecionados", type="secondary"):
-                            conn = sqlite3.connect(DB_FILE)
-                            c = conn.cursor()
-                            for mat_d in matriculas_dem_selecionadas:
-                                c.execute("DELETE FROM colaboradores WHERE matricula = ?", (mat_d,))
-                            conn.commit()
-                            conn.close()
-                            registrar_auditoria("Exclusão Demitidos", f"Excluiu {len(matriculas_dem_selecionadas)} registros demitidos.")
-                            str_lit.success("Registros excluídos permanentemente!")
-                            str_lit.rerun()
+                if str_lit.button("💾 Salvar Alterações do Resumo", type="primary"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    for _, row in df_editado_colab.iterrows():
+                        mat = row["MATRÍCULA"]
+                        c.execute("""
+                            UPDATE colaboradores 
+                            SET nome = ?, tipo_movimentacao = ?, subtipo_movimentacao = ?, data_movimentacao = ?,
+                                funcao = ?, data_contratacao = ?, cpf = ?, rg = ?, observacoes = ?,
+                                tipo_contratacao = ?, periculosidade = ?, ajuda_custo = ?
+                            WHERE matricula = ?
+                        """, (
+                            row["NOME COMPLETO"], row["TIPO"], row["SUBTIPO"], parse_data_rigorosa(row["DATA MOVIMENTAÇÃO"]),
+                            row["CARGO"], parse_data_rigorosa(row["DATA ADMISSÃO"]), formatar_cpf(row["CPF"]), row["RG"],
+                            row["OBSERVAÇÕES"], row["TIPO DE CONTRATAÇÃO"], row["PERICULOSIDADE"], row["AJUDA DE CUSTO (R$)"], mat
+                        ))
+                    conn.commit()
+                    conn.close()
+                    registrar_auditoria("Edição Resumo Colaboradores", "Atualizou dados consolidados dos colaboradores.")
+                    str_lit.success("Alterações salvas com sucesso!")
+                    str_lit.rerun()
 
     # ---------------------------------------------------------
     # MÓDULO 6: NOVO COLABORADOR / ADMISSÃO
@@ -1198,143 +1060,69 @@ else:
     elif menu == "➕ Novo Colaborador / Admissão":
         str_lit.title("➕ Admissão / Movimentação de Empregado")
         if not filiais_nome_para_id:
-            str_lit.warning(
-                "⚠️ Cadastre pelo menos uma filial antes de adicionar colaboradores."
-            )
+            str_lit.warning("⚠️ Cadastre pelo menos uma filial antes.")
         else:
-            str_lit.subheader("1. Informações Principais e Movimentação")
             c_fil, c1, c2 = str_lit.columns(3)
-            filial_nome = c_fil.selectbox(
-                "Filial *", options=list(filiais_nome_para_id.keys())
-            )
+            filial_nome = c_fil.selectbox("Filial *", options=list(filiais_nome_para_id.keys()))
             empregado = c1.text_input("Empregado (Nome Completo) *")
             matricula = c2.text_input("Matrícula *")
 
             c_t1, c_t2, c_t3 = str_lit.columns(3)
             tipo_mov = c_t1.selectbox("Tipo *", options=["Entrada", "Saída"])
-            subtipo_mov = c_t2.selectbox(
-                "Subtipo *",
-                options=["Admissão", "Alocação", "Transferência", "Demissão"],
-            )
-            data_mov = c_t3.date_input(
-                "Data da Movimentação *",
-                min_value=MIN_DATE,
-                max_value=MAX_DATE,
-                format="DD/MM/YYYY",
-            )
+            subtipo_mov = c_t2.selectbox("Subtipo *", options=["Admissão", "Alocação", "Transferência", "Demissão"])
+            data_mov = c_t3.date_input("Data da Movimentação *", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
 
-            str_lit.subheader("2. Dados Profissionais, Contratação e Documentos")
             c3, c4, c5 = str_lit.columns(3)
-            cargos_existentes = get_cargos_cadastrados()
-            cargo_sel = c3.selectbox(
-                "Cargo Existente:", ["-- Novo Cargo --"] + cargos_existentes
-            )
-            cargo = (
-                c3.text_input("Digite o Cargo *")
-                if cargo_sel == "-- Novo Cargo --"
-                else cargo_sel
-            )
-
-            data_admissao = c4.date_input(
-                "Data de Admissão *",
-                min_value=MIN_DATE,
-                max_value=MAX_DATE,
-                format="DD/MM/YYYY",
-            )
-            tipo_contratacao = c5.selectbox(
-                "Tipo de Contratação *", options=["CLT", "PJ"]
-            )
+            cargo = c3.text_input("Cargo *")
+            data_admissao = c4.date_input("Data de Admissão *", min_value=MIN_DATE, max_value=MAX_DATE, format="DD/MM/YYYY")
+            tipo_contratacao = c5.selectbox("Tipo de Contratação *", options=["CLT", "PJ"])
 
             c6, c7 = str_lit.columns(2)
             cpf = c6.text_input("CPF")
             rg = c7.text_input("RG")
 
-            cnpj_empresa_input = str_lit.text_input("CNPJ da Empresa", value=CNPJ_PADRAO)
+            c8, c9 = str_lit.columns(2)
+            periculosidade_in = c8.selectbox("Periculosidade", options=["Não", "Sim"])
+            ajuda_custo_in = c9.number_input("Ajuda de Custo (R$)", min_value=0.0, value=0.0, format="%.2f")
+
             observacoes = str_lit.text_area("Observações")
-            status_colab_novo = (
-                "Demitido"
-                if subtipo_mov == "Demissão" or tipo_mov == "Saída"
-                else "Ativo"
-            )
-            data_demissao_novo = (
-                data_mov if status_colab_novo == "Demitido" else None
-            )
 
             if str_lit.button("💾 Salvar Cadastro Permanentemente"):
                 if not matricula or not empregado:
-                    str_lit.error(
-                        "Preencha os campos obrigatórios (Empregado e Matrícula)."
-                    )
+                    str_lit.error("Preencha Empregado e Matrícula.")
                 else:
-                    cpf_formatado = formatar_cpf(cpf)
-                    dt_dem_val = (
-                        str(data_demissao_novo)
-                        if status_colab_novo == "Demitido" and data_demissao_novo
-                        else None
-                    )
                     try:
                         conn = sqlite3.connect(DB_FILE)
                         c = conn.cursor()
-                        c.execute(
-                            """
+                        c.execute("""
                             INSERT INTO colaboradores (
-                                matricula, nome, cpf, rg, funcao, filial_id,
-                                data_contratacao, status_colaborador, data_demissao,
-                                tipo_movimentacao, subtipo_movimentacao, data_movimentacao,
-                                observacoes, tipo_contratacao, cnpj_empresa
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                            (
-                                matricula,
-                                empregado,
-                                cpf_formatado,
-                                rg,
-                                cargo,
-                                filiais_nome_para_id[filial_nome],
-                                str(data_admissao),
-                                status_colab_novo,
-                                dt_dem_val,
-                                tipo_mov,
-                                subtipo_mov,
-                                str(data_mov),
-                                observacoes,
-                                tipo_contratacao,
-                                formatar_cnpj(cnpj_empresa_input),
-                            ),
-                        )
+                                matricula, nome, tipo_movimentacao, subtipo_movimentacao, data_movimentacao,
+                                funcao, data_contratacao, cpf, rg, observacoes, tipo_contratacao,
+                                periculosidade, ajuda_custo, filial_id, status_colaborador, cnpj_empresa
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Ativo', ?)
+                        """, (
+                            matricula, empregado, tipo_mov, subtipo_mov, str(data_mov), cargo, str(data_admissao),
+                            formatar_cpf(cpf), rg, observacoes, tipo_contratacao, periculosidade_in, ajuda_custo_in,
+                            filiais_nome_para_id[filial_nome], CNPJ_PADRAO
+                        ))
                         conn.commit()
                         conn.close()
-                        registrar_historico(
-                            matricula,
-                            "Nova Movimentação",
-                            "-",
-                            f"Tipo: {tipo_mov} / Subtipo: {subtipo_mov} - Filial {filial_nome}",
-                        )
                         registrar_auditoria("Novo Colaborador", f"Cadastrou {empregado} (Mat: {matricula})")
-                        str_lit.success(
-                            f"Empregado {empregado} cadastrado e salvo com sucesso!"
-                        )
+                        str_lit.success("Colaborador cadastrado com sucesso!")
                     except sqlite3.IntegrityError:
-                        str_lit.error(
-                            "Erro: Matrícula já cadastrada no sistema."
-                        )
+                        str_lit.error("Erro: Matrícula já cadastrada.")
 
     # ---------------------------------------------------------
     # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
     # ---------------------------------------------------------
-    elif menu == "✏️ Editar Cadastro do Colaborador":
-        str_lit.title("✏️ Editar Cadastro do Colaborador")
-
+    elif menu == "✏️️ Editar Cadastro do Colaborador":
+        str_lit.title("✏️ Editar Cadastro Individual do Colaborador")
+        
         conn = sqlite3.connect(DB_FILE)
         try:
             df_colab_geral = pd.read_sql_query(
-                """
-                SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial
-                FROM colaboradores c
-                LEFT JOIN filiais f ON c.filial_id = f.id
-                ORDER BY c.nome
-            """,
-                conn,
+                "SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial FROM colaboradores c LEFT JOIN filiais f ON c.filial_id = f.id ORDER BY c.nome",
+                conn
             )
         except Exception:
             df_colab_geral = pd.DataFrame()
@@ -1343,125 +1131,40 @@ else:
         if df_colab_geral.empty:
             str_lit.info("Nenhum colaborador cadastrado.")
         else:
-            str_lit.subheader("🔍 Localize o colaborador")
+            opcoes_colab = df_colab_geral["matricula"] + " - " + df_colab_geral["nome"] + " (" + df_colab_geral["filial"].fillna("") + ")"
+            colab_sel = str_lit.selectbox("Selecione o Colaborador:", options=opcoes_colab)
+            
+            if colab_sel:
+                mat_sel = colab_sel.split(" - ")[0]
+                conn = sqlite3.connect(DB_FILE)
+                df_det = pd.read_sql_query("SELECT * FROM colaboradores WHERE matricula = ?", conn, params=(mat_sel,))
+                conn.close()
 
-            lista_filiais_edit = ["Todas as Filiais"] + sorted(
-                df_colab_geral["filial"].dropna().unique().tolist()
-            )
-            filial_escolhida_edicao = str_lit.selectbox(
-                "Filtrar por Filial:", options=lista_filiais_edit
-            )
+                if not df_det.empty:
+                    row_d = df_det.iloc[0]
+                    with str_lit.form("form_edicao_individual"):
+                        n_nome = str_lit.text_input("Nome Completo", value=row_d["nome"])
+                        n_cargo = str_lit.text_input("Cargo", value=str(row_d["funcao"] or ""))
+                        n_cpf = str_lit.text_input("CPF", value=formatar_cpf(row_d["cpf"]))
+                        n_rg = str_lit.text_input("RG", value=str(row_d["rg"] or ""))
+                        n_peric = str_lit.selectbox("Periculosidade", options=["Não", "Sim"], index=0 if row_d["periculosidade"] == "Não" else 1)
+                        n_ajuda = str_lit.number_input("Ajuda de Custo (R$)", value=float(row_d["ajuda_custo"] or 0.0), format="%.2f")
+                        n_status = str_lit.selectbox("Status", options=["Ativo", "Demitido"], index=0 if row_d["status_colaborador"] == "Ativo" else 1)
+                        n_obs = str_lit.text_area("Observações", value=str(row_d["observacoes"] or ""))
 
-            df_edit_filtered = df_colab_geral.copy()
-            if filial_escolhida_edicao != "Todas as Filiais":
-                df_edit_filtered = df_edit_filtered[
-                    df_edit_filtered["filial"] == filial_escolhida_edicao
-                ]
-
-            if df_edit_filtered.empty:
-                str_lit.warning("Nenhum colaborador encontrado para esta filial.")
-            else:
-                opcoes_colab = (
-                    df_edit_filtered["matricula"]
-                    + " - "
-                    + df_edit_filtered["nome"]
-                    + " (Cargo: "
-                    + df_edit_filtered["cargo"].fillna("Não informado")
-                    + ")"
-                )
-                colab_selecionado = str_lit.selectbox(
-                    "Selecione o Colaborador que deseja editar:",
-                    options=opcoes_colab,
-                )
-
-                if colab_selecionado:
-                    matricula_sel = colab_selecionado.split(" - ")[0]
-
-                    conn = sqlite3.connect(DB_FILE)
-                    try:
-                        df_detalhe = pd.read_sql_query(
-                            "SELECT * FROM colaboradores WHERE matricula = ?",
-                            conn,
-                            params=(matricula_sel,),
-                        )
-                    except Exception:
-                        df_detalhe = pd.DataFrame()
-                    conn.close()
-
-                    if not df_detalhe.empty:
-                        colab_row = df_detalhe.iloc[0]
-                        str_lit.markdown("---")
-                        str_lit.subheader(
-                            f"Editando: {colab_row['nome']} (Mat: {colab_row['matricula']})"
-                        )
-
-                        with str_lit.form("form_edicao_colab"):
-                            e_nome = str_lit.text_input(
-                                "Nome Completo", value=colab_row["nome"]
-                            )
-                            e_cpf = str_lit.text_input(
-                                "CPF", value=str(colab_row["cpf"] or "")
-                            )
-                            e_rg = str_lit.text_input(
-                                "RG", value=str(colab_row["rg"] or "")
-                            )
-                            e_cargo = str_lit.text_input(
-                                "Cargo", value=str(colab_row["funcao"] or "")
-                            )
-                            e_cnpj = str_lit.text_input(
-                                "CNPJ da Empresa", value=str(colab_row["cnpj_empresa"] or CNPJ_PADRAO)
-                            )
-                            e_status = str_lit.selectbox(
-                                "Status",
-                                options=["Ativo", "Demitido"],
-                                index=(
-                                    0
-                                    if colab_row["status_colaborador"] == "Ativo"
-                                    else 1
-                                ),
-                            )
-                            e_obs = str_lit.text_area(
-                                "Observações",
-                                value=str(colab_row["observacoes"] or ""),
-                            )
-
-                            btn_salvar_edicao = str_lit.form_submit_button(
-                                "💾 Salvar Alterações Permanentemente"
-                            )
-
-                            if btn_salvar_edicao:
-                                conn = sqlite3.connect(DB_FILE)
-                                c = conn.cursor()
-                                c.execute(
-                                    """
-                                    UPDATE colaboradores 
-                                    SET nome = ?, cpf = ?, rg = ?, funcao = ?, cnpj_empresa = ?, status_colaborador = ?, observacoes = ?
-                                    WHERE matricula = ?
-                                """,
-                                    (
-                                        e_nome,
-                                        formatar_cpf(e_cpf),
-                                        e_rg,
-                                        e_cargo,
-                                        formatar_cnpj(e_cnpj),
-                                        e_status,
-                                        e_obs,
-                                        matricula_sel,
-                                    ),
-                                )
-                                conn.commit()
-                                conn.close()
-                                registrar_historico(
-                                    matricula_sel,
-                                    "Edição de Cadastro",
-                                    colab_row["nome"],
-                                    e_nome,
-                                )
-                                registrar_auditoria("Edição de Colaborador", f"Editou dados de {matricula_sel}")
-                                str_lit.success(
-                                    "Cadastro atualizado e salvo permanentemente!"
-                                )
-                                str_lit.rerun()
+                        if str_lit.form_submit_button("💾 Salvar Alterações"):
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            c.execute("""
+                                UPDATE colaboradores 
+                                SET nome = ?, funcao = ?, cpf = ?, rg = ?, periculosidade = ?, ajuda_custo = ?, status_colaborador = ?, observacoes = ?
+                                WHERE matricula = ?
+                            """, (n_nome, n_cargo, formatar_cpf(n_cpf), n_rg, n_peric, n_ajuda, n_status, n_obs, mat_sel))
+                            conn.commit()
+                            conn.close()
+                            registrar_auditoria("Edição Individual", f"Atualizou colaborador {mat_sel}")
+                            str_lit.success("Atualizado com sucesso!")
+                            str_lit.rerun()
 
     # ---------------------------------------------------------
     # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO
@@ -1522,8 +1225,6 @@ else:
 
                     df_va_final = pd.DataFrame(lista_linhas_estruturadas)
 
-                    str_lit.write("Preencha os valores e tags desejados abaixo:")
-                    
                     df_va_editado = str_lit.data_editor(
                         df_va_final.drop(columns=["_matricula"]),
                         column_config={
@@ -1541,12 +1242,10 @@ else:
                     )
 
                     c_btn1, c_btn2 = str_lit.columns(2)
-
                     with c_btn1:
-                        if str_lit.button("💾 Salvar Alterações e Registrar Pedido de VA", key="btn_salvar_saldo_va", type="primary"):
+                        if str_lit.button("💾 Salvar Alterações e Registrar Pedido", key="btn_salvar_saldo_va", type="primary"):
                             conn = sqlite3.connect(DB_FILE)
                             c = conn.cursor()
-                            
                             for idx, row in df_va_editado.iterrows():
                                 mat_real = df_va_final.iloc[idx]["_matricula"]
                                 c.execute("""
@@ -1560,72 +1259,36 @@ else:
                                 INSERT INTO historico_pedidos_va (mes_ano, obra, data_geracao, dados_json)
                                 VALUES (?, ?, ?, ?)
                             """, (mes_ano_str, filial_va, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), dados_json_ped))
-
                             conn.commit()
                             conn.close()
-                            
-                            registrar_auditoria("Pedido VA", f"Registrou pedido de VA da filial {filial_va} para {mes_ano_str}")
-                            str_lit.success("Dados salvos e pedido de VA registrado com sucesso!")
+                            registrar_auditoria("Pedido VA", f"Registrou pedido de VA da filial {filial_va}")
+                            str_lit.success("Salvo com sucesso!")
                             str_lit.rerun()
 
                     with c_btn2:
                         output = io.BytesIO()
                         with pd.ExcelWriter(output, engine='openpyxl') as writer:
                             df_va_editado.to_excel(writer, index=False, sheet_name='Pedido VA')
-                        excel_data = output.getvalue()
-
                         str_lit.download_button(
                             label="📥 Exportar Planilha em Excel (.xlsx)",
-                            data=excel_data,
+                            data=output.getvalue(),
                             file_name=f"Pedido_VA_{filial_va}_{mes_va}_{ano_va}.xlsx".replace(" ", "_"),
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
 
         with aba_historico_pedidos:
-            str_lit.subheader("📜 Histórico de Pedidos de VA / Saldo Alimentação Salvos")
-            
+            str_lit.subheader("📜 Histórico de Pedidos Registrados")
             conn = sqlite3.connect(DB_FILE)
             try:
-                df_hist_pedidos = pd.read_sql_query(
-                    "SELECT id, mes_ano, obra, data_geracao FROM historico_pedidos_va ORDER BY data_geracao DESC",
-                    conn
-                )
+                df_hist_pedidos = pd.read_sql_query("SELECT id, mes_ano, obra, data_geracao FROM historico_pedidos_va ORDER BY data_geracao DESC", conn)
             except Exception:
                 df_hist_pedidos = pd.DataFrame()
             conn.close()
 
             if df_hist_pedidos.empty:
-                str_lit.info("Nenhum histórico de pedido de VA registrado no banco de dados.")
+                str_lit.info("Nenhum histórico registrado.")
             else:
                 str_lit.dataframe(df_hist_pedidos, use_container_width=True)
-                
-                str_lit.markdown("---")
-                str_lit.subheader("🗑️ Excluir Histórico de Pedido")
-                
-                opcoes_pedidos_del = {
-                    f"ID: {row['id']} | Mês/Ano: {row['mes_ano']} | Obra: {row['obra']} | Data: {row['data_geracao']}": row['id']
-                    for _, row in df_hist_pedidos.iterrows()
-                }
-                
-                pedido_escolhido_str = str_lit.selectbox(
-                    "Selecione o registro de pedido que deseja excluir:",
-                    options=list(opcoes_pedidos_del.keys()),
-                    key="select_del_pedido_va"
-                )
-                
-                if str_lit.button("🗑️ Deletar Histórico de Pedido Selecionado", type="secondary"):
-                    if pedido_escolhido_str:
-                        id_pedido_del = opcoes_pedidos_del[pedido_escolhido_str]
-                        
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        c.execute("DELETE FROM historico_pedidos_va WHERE id = ?", (id_pedido_del,))
-                        conn.commit()
-                        conn.close()
-                        
-                        registrar_auditoria("Exclusão Pedido VA", f"Removeu histórico de pedido ID {id_pedido_del}")
-                        str_lit.success("Histórico de pedido de VA excluído com sucesso!")
-                        str_lit.rerun()
 
     # ---------------------------------------------------------
     # MÓDULO 9: FOLHA DE PONTO
@@ -1653,268 +1316,256 @@ else:
             str_lit.info("Nenhum colaborador ativo cadastrado.")
         else:
             lista_filiais_ponto = sorted(df_ponto["Filial"].dropna().unique().tolist())
-            filial_escolhida_ponto = str_lit.selectbox(
-                "🏢 1. Selecione a Filial / Obra:", options=lista_filiais_ponto
-            )
+            filial_escolhida_ponto = str_lit.selectbox("🏢 1. Selecione a Filial / Obra:", options=lista_filiais_ponto)
 
             df_ponto_filtrado = df_ponto[df_ponto["Filial"] == filial_escolhida_ponto]
+            colab_ponto = str_lit.selectbox("👥 2. Selecione o Colaborador:", options=df_ponto_filtrado["Matrícula"] + " - " + df_ponto_filtrado["Empregado"])
+            matricula_atual = colab_ponto.split(" - ")[0]
 
-            if df_ponto_filtrado.empty:
-                str_lit.warning("Nenhum colaborador ativo encontrado nesta filial.")
-            else:
-                colab_ponto = str_lit.selectbox(
-                    "👥 2. Selecione o Colaborador:",
-                    options=df_ponto_filtrado["Matrícula"]
-                    + " - "
-                    + df_ponto_filtrado["Empregado"],
-                )
-                matricula_atual = colab_ponto.split(" - ")[0]
+            c_mes_p, c_ano_p = str_lit.columns(2)
+            meses_lista = [
+                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+            ]
+            mes_escolhido = c_mes_p.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1)
+            ano_escolhido = c_ano_p.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year)
+            
+            mes_num = meses_lista.index(mes_escolhido) + 1
+            mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
 
-                c_mes_p, c_ano_p = str_lit.columns(2)
-                meses_lista = [
-                    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-                    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-                ]
-                mes_escolhido = c_mes_p.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1)
-                ano_escolhido = c_ano_p.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year)
-                
-                mes_num = meses_lista.index(mes_escolhido) + 1
-                mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
+            proximo_mes = datetime(ano_escolhido + 1, 1, 1) if mes_num == 12 else datetime(ano_escolhido, mes_num + 1, 1)
+            ultimo_dia = (proximo_mes - timedelta(days=1)).day
 
-                if mes_num == 12:
-                    proximo_mes = datetime(ano_escolhido + 1, 1, 1)
+            nomes_dias_semana = {0: "Segunda", 1: "Terça", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sábado", 6: "Domingo"}
+            feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
+
+            conn = sqlite3.connect(DB_FILE)
+            try:
+                df_salvo_ponto = pd.read_sql_query("SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", conn, params=(matricula_atual, mes_ano_str))
+            except Exception:
+                df_salvo_ponto = pd.DataFrame()
+            conn.close()
+
+            dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"]) if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"] else {}
+
+            lista_linhas_dias = []
+            for dia in range(1, ultimo_dia + 1):
+                dt_d = date(int(ano_escolhido), mes_num, dia)
+                dia_sem = nomes_dias_semana[dt_d.weekday()]
+                eh_fer = dt_d in feriados_do_ano
+                tipo_d = f"Feriado ({dia_sem})" if eh_fer else dia_sem
+
+                col_n = f"Dia {dia:02d} ({dt_d.strftime('%d/%m')})"
+                lista_linhas_dias.append({"Dia": col_n, "Tipo": tipo_d, "Horas": str(dados_anteriores.get(col_n, "0"))})
+
+            df_dias_tabela = pd.DataFrame(lista_linhas_dias)
+            df_edit_ponto = str_lit.data_editor(df_dias_tabela, hide_index=True, use_container_width=True)
+
+            total_50 = 0.0
+            total_100 = 0.0
+            dicionario_salvar = {}
+
+            for _, row in df_edit_ponto.iterrows():
+                qtd = converter_hora_flexivel(row["Horas"])
+                dicionario_salvar[row["Dia"]] = row["Horas"]
+                if "Domingo" in row["Tipo"] or "Feriado" in row["Tipo"]:
+                    total_100 += qtd
                 else:
-                    proximo_mes = datetime(ano_escolhido, mes_num + 1, 1)
-                ultimo_dia = (proximo_mes - timedelta(days=1)).day
+                    total_50 += qtd
 
-                nomes_dias_semana = {
-                    0: "Segunda-feira", 1: "Terça-feira", 2: "Quarta-feira",
-                    3: "Quinta-feira", 4: "Sexta-feira", 5: "Sábado", 6: "Domingo"
-                }
+            str_lit.metric("Total HE 50%", f"{total_50:.2f} h")
+            str_lit.metric("Total HE 100%", f"{total_100:.2f} h")
 
-                feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
-
+            if str_lit.button("💾 Salvar Folha de Ponto", type="primary"):
                 conn = sqlite3.connect(DB_FILE)
-                try:
-                    df_salvo_ponto = pd.read_sql_query(
-                        "SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?",
-                        conn, params=(matricula_atual, mes_ano_str)
-                    )
-                except Exception:
-                    df_salvo_ponto = pd.DataFrame()
+                c = conn.cursor()
+                c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
+                c.execute("INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json) VALUES (?, ?, ?, ?, ?)",
+                          (matricula_atual, mes_ano_str, total_50, total_100, json.dumps(dicionario_salvar)))
+                c.execute("UPDATE colaboradores SET he_50 = ?, he_100 = ? WHERE matricula = ?", (total_50, total_100, matricula_atual))
+                conn.commit()
                 conn.close()
-
-                dados_anteriores = {}
-                if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"]:
-                    try:
-                        dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"])
-                    except Exception:
-                        pass
-
-                lista_linhas_dias = []
-                for dia in range(1, ultimo_dia + 1):
-                    data_atual = date(int(ano_escolhido), mes_num, dia)
-                    dia_semana_num = data_atual.weekday()
-                    nome_dia_sem = nomes_dias_semana[dia_semana_num]
-                    
-                    eh_feriado = data_atual in feriados_do_ano
-                    tipo_dia_str = f"Feriado ({nome_dia_sem})" if eh_feriado else nome_dia_sem
-
-                    coluna_nome = f"Dia {dia:02d} ({data_atual.strftime('%d/%m')})"
-                    valor_salvo = dados_anteriores.get(coluna_nome, "0")
-                    
-                    lista_linhas_dias.append({
-                        "Dia": coluna_nome,
-                        "Tipo": tipo_dia_str,
-                        "Horas": str(valor_salvo)
-                    })
-
-                df_dias_tabela = pd.DataFrame(lista_linhas_dias)
-
-                str_lit.markdown(f"### 📋 Lançamento Diário de Horas Extras - {mes_ano_str}")
-                str_lit.write("Preencha a quantidade de horas em cada dia. Use vírgula, ponto ou dois-pontos (ex: `1,5` ou `01:30`).")
-                str_lit.write("ℹ️ **Regra:** Segunda a Sexta-feira (e Sábados) somam em **50%**. Domingos e Feriados Nacionais somam em **100%**.")
-
-                df_edit_ponto = str_lit.data_editor(
-                    df_dias_tabela,
-                    column_config={
-                        "Dia": str_lit.column_config.TextColumn("Data / Dia", disabled=True),
-                        "Tipo": str_lit.column_config.TextColumn("Tipo (Dia da Semana / Feriado)", disabled=True),
-                        "Horas": str_lit.column_config.TextColumn("Qtd Horas Feitas", required=True)
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
-
-                total_he_50_calc = 0.0
-                total_he_100_calc = 0.0
-                dicionario_salvar = {}
-
-                for _, row in df_edit_ponto.iterrows():
-                    dia_str = row["Dia"]
-                    tipo_str = row["Tipo"]
-                    qtd_convertida = converter_hora_flexivel(row["Horas"])
-                    dicionario_salvar[dia_str] = row["Horas"]
-
-                    if "Domingo" in tipo_str or "Feriado" in tipo_str:
-                        total_he_100_calc += qtd_convertida
-                    else:
-                        total_he_50_calc += qtd_convertida
-
-                str_lit.markdown("---")
-                str_lit.markdown("#### 📊 Prévia dos Totais Calculados:")
-                c_res1, c_res2 = str_lit.columns(2)
-                c_res1.metric("Total Horas Extras 50% (Seg a Sex / Sáb)", f"{total_he_50_calc:.2f} h")
-                c_res2.metric("Total Horas Extras 100% (Domingos e Feriados)", f"{total_he_100_calc:.2f} h")
-                str_lit.markdown("---")
-
-                if str_lit.button("💾 Salvar Folha de Ponto Permanentemente", type="primary"):
-                    json_dados = json.dumps(dicionario_salvar)
-                    conn = sqlite3.connect(DB_FILE)
-                    c = conn.cursor()
-                    
-                    c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
-                    c.execute(
-                        """
-                        INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-                        (matricula_atual, mes_ano_str, total_he_50_calc, total_he_100_calc, json_dados),
-                    )
-
-                    c.execute(
-                        """
-                        UPDATE colaboradores 
-                        SET he_50 = ?, he_100 = ?
-                        WHERE matricula = ?
-                    """,
-                        (total_he_50_calc, total_he_100_calc, matricula_atual)
-                    )
-
-                    conn.commit()
-                    conn.close()
-                    registrar_auditoria("Folha de Ponto", f"Salvou ponto de {matricula_atual} ({mes_ano_str})")
-                    str_lit.success(f"Folha de ponto de {mes_ano_str} e os saldos de HE do colaborador salvos com sucesso no banco de dados!")
+                registrar_auditoria("Folha de Ponto", f"Ponto salvo para {matricula_atual}")
+                str_lit.success("Salvo com sucesso!")
 
     # ---------------------------------------------------------
     # MÓDULO 10: FOLGA DE CAMPO / RECESSO
     # ---------------------------------------------------------
     elif menu == "🏖️ Folga de Campo / Recesso":
-        str_lit.title("🏖️ Controle de Folga de Campo / Recesso por Filial")
-        str_lit.info("💡 Faça o upload da planilha correspondente às folgas de campo ou recesso da filial para manter o arquivo arquivado e sincronizado.")
-
+        str_lit.title("🏖️ Controle de Folga de Campo / Recesso (Com Fórmulas de Dias)")
+        
         f_map_folga, _ = get_filiais_dict()
         if not f_map_folga:
             str_lit.warning("Cadastre uma filial primeiro.")
         else:
-            filial_folga_sel = str_lit.selectbox(
-                "🏢 Selecione a Filial / Obra:",
-                options=list(f_map_folga.keys()),
-                key="sel_filial_folga_campo"
-            )
+            filial_folga_sel = str_lit.selectbox("🏢 Selecione a Filial / Obra:", options=list(f_map_folga.keys()), key="sel_filial_folga")
             f_id_folga = f_map_folga[filial_folga_sel]
 
             conn = sqlite3.connect(DB_FILE)
             try:
-                df_folga_salva = pd.read_sql_query(
-                    "SELECT nome_arquivo, data_importacao, arquivo_blob FROM folga_campo_recesso WHERE filial_id = ?",
-                    conn, params=(f_id_folga,)
-                )
+                df_f_db = pd.read_sql_query("SELECT nome_arquivo, data_importacao, dados_json FROM folga_campo_recesso WHERE filial_id = ?", conn, params=(f_id_folga,))
             except Exception:
-                df_folga_salva = pd.DataFrame()
+                df_f_db = pd.DataFrame()
             conn.close()
 
-            if not df_folga_salva.empty:
-                row_f_salva = df_folga_salva.iloc[0]
-                str_lit.success(f"📂 **Planilha de Folga/Recesso arquivada:** `{row_f_salva['nome_arquivo']}` (Importada em: {row_f_salva['data_importacao']})")
-                
+            # Se já existir arquivo salvo, carrega do banco. Senão, puxa os colaboradores ativos da filial.
+            df_trabalho = pd.DataFrame()
+            if not df_f_db.empty and df_f_db.iloc[0]["dados_json"]:
                 try:
-                    df_preview_salvo = pd.read_excel(io.BytesIO(row_f_salva["arquivo_blob"]), engine="openpyxl")
-                    str_lit.write("Pré-visualização dos dados salvos:")
-                    str_lit.dataframe(df_preview_salvo, use_container_width=True)
+                    df_trabalho = pd.read_json(io.StringIO(df_f_db.iloc[0]["dados_json"]))
                 except Exception:
                     pass
 
-                col_dl_f, col_del_f = str_lit.columns(2)
-                with col_dl_f:
-                    str_lit.download_button(
-                        label="📥 Baixar Planilha de Folga/Recesso Atual",
-                        data=row_f_salva["arquivo_blob"],
-                        file_name=row_f_salva["nome_arquivo"],
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"dl_folga_filial_{f_id_folga}"
-                    )
-                with col_del_f:
-                    if str_lit.button("🗑️ Apagar Arquivo de Folga Desta Filial", type="secondary"):
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_folga,))
-                        conn.commit()
-                        conn.close()
-                        registrar_auditoria("Limpeza Folga de Campo", f"Apagou planilha de folga da filial {filial_folga_sel}")
-                        str_lit.success("Arquivo de folga/recesso removido com sucesso!")
-                        str_lit.rerun()
+            if df_trabalho.empty:
+                conn = sqlite3.connect(DB_FILE)
+                try:
+                    df_colabs_filial = pd.read_sql_query("SELECT matricula, nome FROM colaboradores WHERE filial_id = ? AND status_colaborador = 'Ativo'", conn, params=(f_id_folga,))
+                except Exception:
+                    df_colabs_filial = pd.DataFrame()
+                conn.close()
 
-                str_lit.markdown("---")
+                linhas_iniciais = []
+                for _, rc in df_colabs_filial.iterrows():
+                    linhas_iniciais.append({
+                        "MATRÍCULA": str(rc["matricula"]),
+                        "NOME COMPLETO": rc["nome"],
+                        "OBRA": filial_folga_sel,
+                        "1° FOLGA": "",
+                        "CHEGOU DA 1° FOLGA": "",
+                        "2° FOLGA": "",
+                        "CHEGOU DA 2° FOLGA": "",
+                        "3° FOLGA": ""
+                    })
+                df_trabalho = pd.DataFrame(linhas_iniciais)
 
-            arquivo_folga_up = str_lit.file_uploader(
-                "Envie a planilha em Excel ou CSV de Folga de Campo / Recesso:",
-                type=["xlsx", "xls", "xlsm", "csv"],
-                key="uploader_folga_campo"
+            str_lit.markdown("---")
+            str_lit.subheader("⚙️ Configuração de Cálculo Automático das Folgas")
+            c_op1, c_op2 = str_lit.columns(2)
+            dias_intervalo_1 = c_op1.selectbox("Intervalo da 1ª para a 2ª Folga:", options=[60, 90], index=0)
+            dias_intervalo_2 = c_op2.selectbox("Intervalo da 2ª para a 3ª Folga:", options=[60, 90], index=0)
+
+            if str_lit.button("⚡ Aplicar Fórmulas Automáticas de Datas (+60/+90 dias)"):
+                for idx, row in df_trabalho.iterrows():
+                    f1_str = str(row.get("1° FOLGA", "")).strip()
+                    if f1_str and f1_str not in ["None", "nan", "-"]:
+                        try:
+                            dt1 = datetime.strptime(parse_data_rigorosa(f1_str), "%Y-%m-%d").date()
+                            dt2 = dt1 + timedelta(days=dias_intervalo_1)
+                            df_trabalho.loc[idx, "2° FOLGA"] = dt2.strftime("%d/%m/%Y")
+                        except Exception:
+                            pass
+
+                    f2_str = str(row.get("2° FOLGA", "")).strip()
+                    if f2_str and f2_str not in ["None", "nan", "-"]:
+                        try:
+                            dt2 = datetime.strptime(parse_data_rigorosa(f2_str), "%Y-%m-%d").date()
+                            dt3 = dt2 + timedelta(days=dias_intervalo_2)
+                            df_trabalho.loc[idx, "3° FOLGA"] = dt3.strftime("%d/%m/%Y")
+                        except Exception:
+                            pass
+                str_lit.success("Fórmulas aplicadas com sucesso nas datas!")
+
+            str_lit.markdown("---")
+            str_lit.write("Tabela interativa de Folga de Campo / Recesso (Edite qualquer célula livremente):")
+
+            df_edit_folga = str_lit.data_editor(
+                df_trabalho,
+                column_config={
+                    "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
+                    "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
+                    "OBRA": str_lit.column_config.TextColumn("OBRA", disabled=True),
+                    "1° FOLGA": str_lit.column_config.TextColumn("1° FOLGA (DD/MM/AAAA)"),
+                    "CHEGOU DA 1° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 1° FOLGA (DD/MM/AAAA)"),
+                    "2° FOLGA": str_lit.column_config.TextColumn("2° FOLGA (DD/MM/AAAA)"),
+                    "CHEGOU DA 2° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 2° FOLGA (DD/MM/AAAA)"),
+                    "3° FOLGA": str_lit.column_config.TextColumn("3° FOLGA (DD/MM/AAAA)"),
+                },
+                hide_index=True,
+                use_container_width=True,
             )
 
-            if arquivo_folga_up is not None:
+            c_b1, c_b2, c_b3 = str_lit.columns(3)
+            with c_b1:
+                if str_lit.button("💾 Salvar Dados de Folga Permanentemente", type="primary"):
+                    json_str_folga = df_edit_folga.to_json(orient="records", force_ascii=False)
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("""
+                        INSERT OR REPLACE INTO folga_campo_recesso (filial_id, nome_arquivo, data_importacao, dados_json)
+                        VALUES (?, ?, ?, ?)
+                    """, (f_id_folga, f"Controle_Folga_{filial_folga_sel}.xlsx", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), json_str_folga))
+                    conn.commit()
+                    conn.close()
+                    registrar_auditoria("Folga de Campo Salva", f"Atualizou folgas da filial {filial_folga_sel}")
+                    str_lit.success("Dados salvos com sucesso no banco de dados!")
+                    str_lit.rerun()
+
+            with c_b2:
+                output_f = io.BytesIO()
+                with pd.ExcelWriter(output_f, engine='openpyxl') as writer:
+                    df_edit_folga.to_excel(writer, index=False, sheet_name='Folga de Campo')
+                str_lit.download_button(
+                    label="📥 Exportar Planilha Excel (.xlsx)",
+                    data=output_f.getvalue(),
+                    file_name=f"Folga_Campo_{filial_folga_sel}.xlsx".replace(" ", "_"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+            with c_b3:
+                if str_lit.button("🗑️ Apagar Todos os Registros Desta Filial", type="secondary"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM folga_campo_recesso WHERE filial_id = ?", (f_id_folga,))
+                    conn.commit()
+                    conn.close()
+                    registrar_auditoria("Limpeza Folga", f"Removeu folgas da filial {filial_folga_sel}")
+                    str_lit.success("Registros apagados com sucesso!")
+                    str_lit.rerun()
+
+            str_lit.markdown("---")
+            arquivo_up_folga_esp = str_lit.file_uploader(
+                "Ou importe uma planilha pronta de Folga de Campo / Recesso (.xlsx, .xls, .csv):",
+                type=["xlsx", "xls", "xlsm", "csv"],
+                key="up_folga_externo"
+            )
+            if arquivo_up_folga_esp is not None:
                 try:
-                    nome_arq_f = arquivo_folga_up.name
-                    bytes_arq_f = arquivo_folga_up.getvalue()
-                    
-                    if nome_arq_f.lower().endswith(".csv"):
-                        df_imp_f = pd.read_csv(io.BytesIO(bytes_arq_f))
+                    if arquivo_up_folga_esp.name.lower().endswith(".csv"):
+                        df_up_f = pd.read_csv(io.BytesIO(arquivo_up_folga_esp.getvalue()))
                     else:
-                        df_imp_f = pd.read_excel(io.BytesIO(bytes_arq_f), engine="openpyxl")
-
-                    str_lit.write(f"Pré-visualização do arquivo enviado ({len(df_imp_f)} linhas):")
-                    str_lit.dataframe(df_imp_f, use_container_width=True)
-
-                    if str_lit.button("🚀 Salvar e Arquivar Planilha de Folga/Recesso", type="primary"):
-                        conn = sqlite3.connect(DB_FILE)
-                        c = conn.cursor()
-                        c.execute("""
-                            INSERT OR REPLACE INTO folga_campo_recesso (filial_id, nome_arquivo, data_importacao, arquivo_blob)
-                            VALUES (?, ?, ?, ?)
-                        """, (f_id_folga, nome_arq_f, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), sqlite3.Binary(bytes_arq_f)))
-                        conn.commit()
-                        conn.close()
-
-                        registrar_auditoria("Folga de Campo Importada", f"Filial {filial_folga_sel}: {nome_arq_f}")
-                        str_lit.success("Planilha de folga de campo/recesso salva e arquivada com sucesso!")
-                        str_lit.rerun()
+                        df_up_f = pd.read_excel(io.BytesIO(arquivo_up_folga_esp.getvalue()), engine="openpyxl")
+                    
+                    json_str_folga = df_up_f.to_json(orient="records", force_ascii=False)
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("""
+                        INSERT OR REPLACE INTO folga_campo_recesso (filial_id, nome_arquivo, data_importacao, dados_json)
+                        VALUES (?, ?, ?, ?)
+                    """, (f_id_folga, arquivo_up_folga_esp.name, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), json_str_folga))
+                    conn.commit()
+                    conn.close()
+                    str_lit.success("Planilha importada e arquivada com sucesso!")
+                    str_lit.rerun()
                 except Exception as e:
-                    str_lit.error(f"Erro ao ler arquivo: {e}")
+                    str_lit.error(f"Erro ao importar arquivo: {e}")
 
     # ---------------------------------------------------------
     # MÓDULO 11: AUDITORIA DE SISTEMA (EXCLUSIVO ADMIN)
     # ---------------------------------------------------------
     elif menu == "🛡️ Auditoria de Sistema":
         if str_lit.session_state.usuario_logado.lower() != ADMIN_EMAIL.lower():
-            str_lit.error("⚠️️ Acesso não autorizado.")
+            str_lit.error("⚠ Acesso não autorizado.")
         else:
             str_lit.title("🛡️ Auditoria e Logs de Atividades")
-            str_lit.write("Histórico detalhado de todas as interações e transações executadas no sistema por usuário.")
-
             conn = sqlite3.connect(DB_FILE)
             try:
-                df_logs = pd.read_sql_query(
-                    "SELECT id as 'ID', usuario as 'Usuário', acao as 'Ação', detalhes as 'Detalhes', data_hora as 'Data/Hora' FROM logs_auditoria ORDER BY id DESC",
-                    conn
-                )
+                df_logs = pd.read_sql_query("SELECT id as 'ID', usuario as 'Usuário', acao as 'Ação', detalhes as 'Detalhes', data_hora as 'Data/Hora' FROM logs_auditoria ORDER BY id DESC", conn)
             except Exception:
                 df_logs = pd.DataFrame()
             conn.close()
 
             if df_logs.empty:
-                str_lit.info("Nenhum registro de auditoria encontrado.")
+                str_lit.info("Nenhum log encontrado.")
             else:
-                str_lit.metric("Total de Ações Registradas", len(df_logs))
-                str_lit.markdown("---")
+                str_lit.metric("Total de Ações", len(df_logs))
                 str_lit.dataframe(df_logs, use_container_width=True)
