@@ -490,7 +490,7 @@ if not str_lit.session_state.autenticado:
                         str_lit.success("Senha alterada com sucesso! Acesse pela aba 'Entrar'.")
                     else:
                         conn.close()
-                        str_lit.error("⚠️ E-mail não encontrado no banco de dados.")
+                        str_lit.error("⚠️️ E-mail não encontrado no banco de dados.")
 
 else:
     # =========================================================
@@ -1106,7 +1106,7 @@ else:
     # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR (COM FILTRO POR FILIAL)
     # ---------------------------------------------------------
     elif menu == "✏️ Editar Cadastro do Colaborador":
-        str_lit.title("✏️ Editar Cadastro Individual do Colaborador")
+        str_lit.title("✏️️ Editar Cadastro Individual do Colaborador")
         
         conn = sqlite3.connect(DB_FILE)
         try:
@@ -1166,7 +1166,7 @@ else:
                                 str_lit.rerun()
 
     # ---------------------------------------------------------
-    # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO (COM OPÇÃO DE EXCLUIR NA EXPORTAÇÃO)
+    # MÓDULO 8: PEDIDO SALDO ALIMENTAÇÃO (CORRIGIDO)
     # ---------------------------------------------------------
     elif menu == "💳 Pedido Saldo Alimentação":
         str_lit.title("💳 Gestão, Pedido e Histórico de Saldo Alimentação / VA")
@@ -1268,7 +1268,7 @@ else:
                             str_lit.rerun()
 
                     with c_btn2:
-                        df_para_excel = df_va_editado[df_va_editado["Exportar?]"] == True if "Exportar?]" in df_va_editado.columns else df_va_editado[df_va_editado["Exportar?"] == True].drop(columns=["Exportar?"])
+                        df_para_excel = df_va_editado[df_va_editado["Exportar?"] == True].copy()
                         if "Exportar?" in df_para_excel.columns:
                             df_para_excel = df_para_excel.drop(columns=["Exportar?"])
                         
@@ -1292,7 +1292,7 @@ else:
             conn.close()
 
             if df_hist_pedidos.empty:
-                str_lit.info("ℹ️️ Nenhum histórico registrado.")
+                str_lit.info("ℹ️ Nenhum histórico registrado.")
             else:
                 str_lit.dataframe(df_hist_pedidos, use_container_width=True)
 
@@ -1300,7 +1300,7 @@ else:
     # MÓDULO 9: FOLHA DE PONTO
     # ---------------------------------------------------------
     elif menu == "⏱️ Folha de Ponto":
-        str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
+        str_lit.title("⏱️️ Controle de Folha de Ponto e Horas Extras")
 
         conn = sqlite3.connect(DB_FILE)
         try:
