@@ -3,11 +3,10 @@ import io
 import json
 import random
 import re
-import smtplib
-from email.message import EmailMessage
 import pandas as pd
 import sqlite3
 import streamlit as str_lit
+import hashlib
 
 str_lit.set_page_config(
     page_title="Sistema de Gestão ADM - ENGESP",
@@ -52,37 +51,12 @@ str_lit.markdown(
 DB_FILE = "gestao_empresa.db"
 CNPJ_PADRAO = "37.608.361/0001-25"
 ADMIN_EMAIL = "admin@engesp.com"
-
-# =========================================================
-# CONFIGURAÇÕES DE E-MAIL (SMTP)
-# =========================================================
-SMTP_SERVER = "smtp.seuprovedor.com"
-SMTP_PORT = 587
-SMTP_USER = "sistema@engesp.com"
-SMTP_PASSWORD = "sua_senha_de_app_ou_email"
+ADMIN_SENHA_PADRAO = "admin123"  # Senha inicial padrão do Administrador
 
 
-def enviar_email_codigo(destinatario, codigo):
-    """Tenta enviar o código via SMTP. Se falhar, registra no console para fallback."""
-    msg = EmailMessage()
-    msg.set_content(
-        f"Olá,\n\nSeu código de acesso ao Sistema de Gestão ADM - ENGESP é: {codigo}\n\n"
-        f"Este código é válido para esta tentativa de login.\n\nAtenciosamente,\nEquipe ENGESP."
-    )
-    msg["Subject"] = "🔐 Código de Acesso - Sistema ENGESP"
-    msg["From"] = SMTP_USER
-    msg["To"] = destinatario
-
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=5) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.send_message(msg)
-        return True
-    except Exception as e:
-        print(f"[Alerta SMTP] Não foi possível enviar e-mail real: {e}")
-        print(f"[CÓDIGO GERADO PARA {destinatario}]: {codigo}")
-        return False
+def hash_senha(senha):
+    """Gera um hash seguro para a senha."""
+    return hashlib.sha256(senha.encode()).hexdigest()
 
 
 # ---------------------------------------------------------
@@ -92,20 +66,23 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
+    # Tabela de Usuários com Senha
     c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             email TEXT PRIMARY KEY,
-            codigo_verificacao TEXT,
+            senha TEXT NOT NULL,
             criado_por TEXT
         )
     """)
-    
-    # Garante compatibilidade caso a tabela já exista sem a coluna nova
-    try:
-        c.execute("ALTER TABLE usuarios ADD COLUMN codigo_verificacao TEXT")
-    except Exception:
-        pass
 
+    # Garante que o Admin padrão exista no banco
+    c.execute("SELECT email FROM usuarios WHERE email = ?", (ADMIN_EMAIL,))
+    if not c.fetchone():
+        c.execute(
+            "INSERT INTO usuarios (email, senha, criado_por) VALUES (?, ?, ?)",
+            (ADMIN_EMAIL, hash_senha(ADMIN_SENHA_PADRAO), "Sistema")
+        )
+    
     c.execute("""
         CREATE TABLE IF NOT EXISTS logs_auditoria (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -438,79 +415,101 @@ def get_cargos_cadastrados():
 
 
 # =========================================================
-# CONTROLE DE SESSÃO E TELA DE AUTENTICAÇÃO POR CÓDIGO
+# CONTROLE DE SESSÃO E TELA DE AUTENTICAÇÃO (LOGIN / CADASTRO / RECUPERAÇÃO)
 # =========================================================
 if "autenticado" not in str_lit.session_state:
     str_lit.session_state.autenticado = False
 if "usuario_logado" not in str_lit.session_state:
     str_lit.session_state.usuario_logado = None
-if "codigo_enviado" not in str_lit.session_state:
-    str_lit.session_state.codigo_enviado = False
-if "email_pendente" not in str_lit.session_state:
-    str_lit.session_state.email_pendente = ""
 
 if not str_lit.session_state.autenticado:
-    str_lit.title("🔐 Acesso Restrito - Portal ENGESP (Login por Código)")
+    str_lit.title("🔐 Portal ENGESP - Acesso ao Sistema ADM")
     
-    str_lit.info("Insira seu e-mail corporativo finalizado em `@engesp.com` para prosseguir.")
+    aba_login, aba_cadastro, aba_recuperar = str_lit.tabs(["🔑 Entrar", "📝 Novo Cadastro", "🔄 Esqueci a Senha"])
 
-    email_input = str_lit.text_input("E-mail Corporativo (@engesp.com):", value=str_lit.session_state.email_pendente)
+    with aba_login:
+        str_lit.subheader("Acesse com seu E-mail Corporativo e Senha")
+        with str_lit.form("form_login"):
+            email_l = str_lit.text_input("E-mail Corporativo (@engesp.com):")
+            senha_l = str_lit.text_input("Senha:", type="password")
+            btn_entrar = str_lit.form_submit_button("Entrar no Sistema", type="primary")
 
-    if not str_lit.session_state.codigo_enviado:
-        if str_lit.button("📩 Enviar Código de Acesso", type="primary"):
-            if not email_input.endswith("@engesp.com"):
-                str_lit.error("⚠️ Acesso negado. O e-mail deve terminar exatamente com o domínio corporativo `@engesp.com`.")
-            else:
-                codigo_otp = f"{random.randint(100000, 999999)}"
-                
-                enviar_email_codigo(email_input, codigo_otp)
-
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute(
-                    "INSERT OR REPLACE INTO usuarios (email, codigo_verificacao) VALUES (?, ?)",
-                    (email_input, codigo_otp)
-                )
-                conn.commit()
-                conn.close()
-
-                str_lit.session_state.codigo_enviado = True
-                str_lit.session_state.email_pendente = email_input
-                
-                registrar_auditoria("Solicitação de Código", f"Código gerado para {email_input}")
-                str_lit.success(f"Código gerado e enviado para **{email_input}**! Digite-o abaixo.")
-                str_lit.rerun()
-    else:
-        str_lit.warning(f"📬 Código solicitado para o e-mail: **{str_lit.session_state.email_pendente}**")
-        
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT codigo_verificacao FROM usuarios WHERE email = ?", (str_lit.session_state.email_pendente,))
-        res_codigo = c.fetchone()
-        conn.close()
-        
-        if res_codigo:
-            str_lit.info(f"💡 Dica para teste local (já que o SMTP não está configurado): Seu código atual é **{res_codigo[0]}**")
-
-        codigo_digitado = str_lit.text_input("Digite o Código de 6 Dígitos:", max_chars=6)
-
-        col_b1, col_b2 = str_lit.columns(2)
-        with col_b1:
-            if str_lit.button("✅ Confirmar e Entrar", type="primary"):
-                if res_codigo and res_codigo[0] == codigo_digitado.strip():
-                    str_lit.session_state.autenticado = True
-                    str_lit.session_state.usuario_logado = str_lit.session_state.email_pendente
-                    str_lit.session_state.codigo_enviado = False
-                    registrar_auditoria("Login", "Usuário autenticado via código com sucesso.")
-                    str_lit.success("Autenticação realizada com sucesso! Carregando sistema...")
-                    str_lit.rerun()
+            if btn_entrar:
+                if not email_l.endswith("@engesp.com"):
+                    str_lit.error("⚠️ O e-mail deve terminar com `@engesp.com`.")
                 else:
-                    str_lit.error("Código incorreto. Verifique os números informados.")
-        with col_b2:
-            if str_lit.button("🔄 Alterar E-mail / Reenviar"):
-                str_lit.session_state.codigo_enviado = False
-                str_lit.session_state.email_pendente = ""
-                str_lit.rerun()
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("SELECT senha FROM usuarios WHERE email = ?", (email_l,))
+                    res = c.fetchone()
+                    conn.close()
+
+                    if res and res[0] == hash_senha(senha_l):
+                        str_lit.session_state.autenticado = True
+                        str_lit.session_state.usuario_logado = email_l
+                        registrar_auditoria("Login", f"Usuário {email_l} acessou o sistema.")
+                        str_lit.success("Login realizado com sucesso! Carregando...")
+                        str_lit.rerun()
+                    else:
+                        str_lit.error("⚠️ E-mail ou senha incorretos.")
+
+    with aba_cadastro:
+        str_lit.subheader("Cadastrar Novo Usuário Corporativo")
+        with str_lit.form("form_cadastro"):
+            email_c = str_lit.text_input("Novo E-mail Corporativo (@engesp.com):")
+            senha_c = str_lit.text_input("Crie uma Senha:", type="password")
+            senha_c2 = str_lit.text_input("Confirme a Senha:", type="password")
+            btn_cadastrar = str_lit.form_submit_button("Cadastrar Nova Conta")
+
+            if btn_cadastrar:
+                if not email_c.endswith("@engesp.com"):
+                    str_lit.error("⚠️ O e-mail deve terminar com `@engesp.com`.")
+                elif senha_c != senha_c2:
+                    str_lit.error("⚠️ As senhas não coincidem.")
+                elif len(senha_c) < 4:
+                    str_lit.error("⚠️ A senha deve conter pelo menos 4 caracteres.")
+                else:
+                    try:
+                        conn = sqlite3.connect(DB_FILE)
+                        c = conn.cursor()
+                        c.execute(
+                            "INSERT INTO usuarios (email, senha, criado_por) VALUES (?, ?, ?)",
+                            (email_c, hash_senha(senha_c), "Auto-cadastro")
+                        )
+                        conn.commit()
+                        conn.close()
+                        registrar_auditoria("Novo Usuário", f"Cadastrou a conta {email_c}")
+                        str_lit.success("Conta cadastrada com sucesso! Vá para a aba 'Entrar' para acessar.")
+                    except sqlite3.IntegrityError:
+                        str_lit.error("⚠️ Este e-mail já possui cadastro no sistema.")
+
+    with aba_recuperar:
+        str_lit.subheader("Redefinir / Esqueci minha Senha")
+        with str_lit.form("form_recuperar"):
+            email_r = str_lit.text_input("Seu E-mail Corporativo Cadastrado (@engesp.com):")
+            nova_senha_r = str_lit.text_input("Nova Senha:", type="password")
+            nova_senha_r2 = str_lit.text_input("Confirme a Nova Senha:", type="password")
+            btn_redefinir = str_lit.form_submit_button("Atualizar Senha")
+
+            if btn_redefinir:
+                if not email_r.endswith("@engesp.com"):
+                    str_lit.error("⚠️ E-mail inválido.")
+                elif nova_senha_r != nova_senha_r2:
+                    str_lit.error("⚠️ As senhas informadas não coincidem.")
+                else:
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("SELECT email FROM usuarios WHERE email = ?", (email_r,))
+                    existe_u = c.fetchone()
+                    if existe_u:
+                        c.execute("UPDATE usuarios SET senha = ? WHERE email = ?", (hash_senha(nova_senha_r), email_r))
+                        conn.commit()
+                        conn.close()
+                        registrar_auditoria("Redefinição de Senha", f"Senha alterada para {email_r}")
+                        str_lit.success("Senha alterada com sucesso! Acesse pela aba 'Entrar'.")
+                    else:
+                        conn.close()
+                        str_lit.error("⚠️ E-mail não encontrado no banco de dados.")
 
 else:
     # =========================================================
@@ -523,7 +522,6 @@ else:
         registrar_auditoria("Logout", "Usuário encerrou a sessão.")
         str_lit.session_state.autenticado = False
         str_lit.session_state.usuario_logado = None
-        str_lit.session_state.codigo_enviado = False
         str_lit.rerun()
 
     lista_modulos = [
@@ -538,6 +536,7 @@ else:
         "⏱️ Folha de Ponto",
     ]
 
+    # Módulo de Auditoria exclusivo para o e-mail do Administrador único
     if str_lit.session_state.usuario_logado.lower() == ADMIN_EMAIL.lower():
         lista_modulos.append("🛡️ Auditoria de Sistema")
 
@@ -1740,7 +1739,7 @@ else:
     # ---------------------------------------------------------
     elif menu == "🛡️ Auditoria de Sistema":
         if str_lit.session_state.usuario_logado.lower() != ADMIN_EMAIL.lower():
-            str_lit.error("⚠️ Acesso não autorizado.")
+            str_lit.error("⚠️️ Acesso não autorizado.")
         else:
             str_lit.title("🛡️ Auditoria e Logs de Atividades")
             str_lit.write("Histórico detalhado de todas as interações e transações executadas no sistema por usuário.")
