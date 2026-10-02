@@ -250,32 +250,6 @@ MIN_DATE = date(1900, 1, 1)
 MAX_DATE = date(2100, 12, 31)
 
 
-def registrar_historico(matricula, tipo, antigo, novo):
-    if str(antigo).strip() != str(novo).strip():
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT filial_id FROM colaboradores WHERE matricula = ?", (matricula,))
-        res = c.fetchone()
-        filial_id_colab = res[0] if res and res[0] is not None else None
-
-        c.execute(
-            """
-            INSERT INTO historico_colaboradores (colaborador_matricula, filial_id, tipo_alteracao, valor_antigo, valor_novo, data_registro)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """,
-            (
-                matricula,
-                filial_id_colab,
-                tipo,
-                str(antigo),
-                str(novo),
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            ),
-        )
-        conn.commit()
-        conn.close()
-
-
 def parse_data_rigorosa(valor):
     if (
         valor is None
@@ -391,20 +365,6 @@ def get_filiais_dict():
     return dict(zip(df["nome"], df["id"])), dict(zip(df["id"], df["nome"]))
 
 
-def get_cargos_cadastrados():
-    conn = sqlite3.connect(DB_FILE)
-    try:
-        df = pd.read_sql_query(
-            "SELECT DISTINCT funcao FROM colaboradores WHERE funcao IS NOT NULL AND funcao != '' ORDER BY funcao",
-            conn,
-        )
-        cargos = df["funcao"].tolist()
-    except Exception:
-        cargos = []
-    conn.close()
-    return cargos
-
-
 def calcular_ultima_folga_colaborador(f_id, matricula):
     conn = sqlite3.connect(DB_FILE)
     try:
@@ -486,9 +446,9 @@ if not str_lit.session_state.autenticado:
                 if not email_c.endswith("@engesp.com"):
                     str_lit.error("⚠️ O e-mail deve terminar com `@engesp.com`.")
                 elif senha_c != senha_c2:
-                    str_lit.error("⚠️️ As senhas não coincidem.")
+                    str_lit.error("⚠️ As senhas não coincidem.")
                 elif len(senha_c) < 4:
-                    str_lit.error("⚠ A senha deve conter pelo menos 4 caracteres.")
+                    str_lit.error("⚠️ A senha deve conter pelo menos 4 caracteres.")
                 else:
                     try:
                         conn = sqlite3.connect(DB_FILE)
@@ -554,12 +514,12 @@ else:
         "➕ Novo Colaborador / Admissão",
         "✏️ Editar Cadastro do Colaborador",
         "💳 Pedido Saldo Alimentação",
-        "⏱️️ Folha de Ponto",
+        "⏱️ Folha de Ponto",
         "🏖️ Folga de Campo / Recesso",
     ]
 
     if str_lit.session_state.usuario_logado.lower() == ADMIN_EMAIL.lower():
-        lista_modulos.append("🛡️ Auditoria de Sistema")
+        lista_modulos.append("🛡️️ Auditoria de Sistema")
 
     str_lit.markdown("### 🏢 Sistema de Gestão ADM")
     menu = str_lit.selectbox(
@@ -1108,7 +1068,7 @@ else:
     # ---------------------------------------------------------
     # MÓDULO 7: EDITAR CADASTRO DO COLABORADOR
     # ---------------------------------------------------------
-    elif menu == "✏️ Editar Cadastro do Colaborador":
+    elif menu == "✏️️ Editar Cadastro do Colaborador":
         str_lit.title("✏️ Editar Cadastro Individual do Colaborador")
         
         conn = sqlite3.connect(DB_FILE)
@@ -1284,7 +1244,7 @@ else:
                 str_lit.dataframe(df_hist_pedidos, use_container_width=True)
 
     # ---------------------------------------------------------
-    # MÓDULO 9: FOLHA DE PONTO
+    # MÓDULO 9: FOLHA DE PONTO (CORRIGIDO)
     # ---------------------------------------------------------
     elif menu == "⏱️ Folha de Ponto":
         str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
@@ -1306,80 +1266,84 @@ else:
         conn.close()
 
         if df_ponto.empty:
-            str_lit.info("Nenhum colaborador ativo cadastrado.")
+            str_lit.info("⚠️ Nenhum colaborador ativo cadastrado no sistema. Importe colaboradores ou faça um cadastro novo primeiro.")
         else:
             lista_filiais_ponto = sorted(df_ponto["Filial"].dropna().unique().tolist())
             filial_escolhida_ponto = str_lit.selectbox("🏢 1. Selecione a Filial / Obra:", options=lista_filiais_ponto)
 
             df_ponto_filtrado = df_ponto[df_ponto["Filial"] == filial_escolhida_ponto]
-            colab_ponto = str_lit.selectbox("👥 2. Selecione o Colaborador:", options=df_ponto_filtrado["Matrícula"] + " - " + df_ponto_filtrado["Empregado"])
-            matricula_atual = colab_ponto.split(" - ")[0]
-
-            c_mes_p, c_ano_p = str_lit.columns(2)
-            meses_lista = [
-                "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-            ]
-            mes_escolhido = c_mes_p.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1)
-            ano_escolhido = c_ano_p.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year)
             
-            mes_num = meses_lista.index(mes_escolhido) + 1
-            mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
+            if df_ponto_filtrado.empty:
+                str_lit.warning("Nenhum colaborador ativo nesta filial.")
+            else:
+                colab_ponto = str_lit.selectbox("👥 2. Selecione o Colaborador:", options=df_ponto_filtrado["Matrícula"] + " - " + df_ponto_filtrado["Empregado"])
+                matricula_atual = colab_ponto.split(" - ")[0]
 
-            proximo_mes = datetime(ano_escolhido + 1, 1, 1) if mes_num == 12 else datetime(ano_escolhido, mes_num + 1, 1)
-            ultimo_dia = (proximo_mes - timedelta(days=1)).day
+                c_mes_p, c_ano_p = str_lit.columns(2)
+                meses_lista = [
+                    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+                ]
+                mes_escolhido = c_mes_p.selectbox("Mês de Referência:", options=meses_lista, index=datetime.now().month - 1)
+                ano_escolhido = c_ano_p.number_input("Ano de Referência:", min_value=2020, max_value=2100, value=datetime.now().year)
+                
+                mes_num = meses_lista.index(mes_escolhido) + 1
+                mes_ano_str = f"{mes_escolhido} de {ano_escolhido}"
 
-            nomes_dias_semana = {0: "Segunda", 1: "Terça", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sábado", 6: "Domingo"}
-            feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
+                proximo_mes = datetime(ano_escolhido + 1, 1, 1) if mes_num == 12 else datetime(ano_escolhido, mes_num + 1, 1)
+                ultimo_dia = (proximo_mes - timedelta(days=1)).day
 
-            conn = sqlite3.connect(DB_FILE)
-            try:
-                df_salvo_ponto = pd.read_sql_query("SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", conn, params=(matricula_atual, mes_ano_str))
-            except Exception:
-                df_salvo_ponto = pd.DataFrame()
-            conn.close()
+                nomes_dias_semana = {0: "Segunda", 1: "Terça", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sábado", 6: "Domingo"}
+                feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
 
-            dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"]) if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"] else {}
-
-            lista_linhas_dias = []
-            for dia in range(1, ultimo_dia + 1):
-                dt_d = date(int(ano_escolhido), mes_num, dia)
-                dia_sem = nomes_dias_semana[dt_d.weekday()]
-                eh_fer = dt_d in feriados_do_ano
-                tipo_d = f"Feriado ({dia_sem})" if eh_fer else dia_sem
-
-                col_n = f"Dia {dia:02d} ({dt_d.strftime('%d/%m')})"
-                lista_linhas_dias.append({"Dia": col_n, "Tipo": tipo_d, "Horas": str(dados_anteriores.get(col_n, "0"))})
-
-            df_dias_tabela = pd.DataFrame(lista_linhas_dias)
-            df_edit_ponto = str_lit.data_editor(df_dias_tabela, hide_index=True, use_container_width=True)
-
-            total_50 = 0.0
-            total_100 = 0.0
-            dicionario_salvar = {}
-
-            for _, row in df_edit_ponto.iterrows():
-                qtd = converter_hora_flexivel(row["Horas"])
-                dicionario_salvar[row["Dia"]] = row["Horas"]
-                if "Domingo" in row["Tipo"] or "Feriado" in row["Tipo"]:
-                    total_100 += qtd
-                else:
-                    total_50 += qtd
-
-            str_lit.metric("Total HE 50%", f"{total_50:.2f} h")
-            str_lit.metric("Total HE 100%", f"{total_100:.2f} h")
-
-            if str_lit.button("💾 Salvar Folha de Ponto", type="primary"):
                 conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
-                c.execute("INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json) VALUES (?, ?, ?, ?, ?)",
-                          (matricula_atual, mes_ano_str, total_50, total_100, json.dumps(dicionario_salvar)))
-                c.execute("UPDATE colaboradores SET he_50 = ?, he_100 = ? WHERE matricula = ?", (total_50, total_100, matricula_atual))
-                conn.commit()
+                try:
+                    df_salvo_ponto = pd.read_sql_query("SELECT dados_json FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", conn, params=(matricula_atual, mes_ano_str))
+                except Exception:
+                    df_salvo_ponto = pd.DataFrame()
                 conn.close()
-                registrar_auditoria("Folha de Ponto", f"Ponto salvo para {matricula_atual}")
-                str_lit.success("Salvo com sucesso!")
+
+                dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"]) if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"] else {}
+
+                lista_linhas_dias = []
+                for dia in range(1, ultimo_dia + 1):
+                    dt_d = date(int(ano_escolhido), mes_num, dia)
+                    dia_sem = nomes_dias_semana[dt_d.weekday()]
+                    eh_fer = dt_d in feriados_do_ano
+                    tipo_d = f"Feriado ({dia_sem})" if eh_fer else dia_sem
+
+                    col_n = f"Dia {dia:02d} ({dt_d.strftime('%d/%m')})"
+                    lista_linhas_dias.append({"Dia": col_n, "Tipo": tipo_d, "Horas": str(dados_anteriores.get(col_n, "0"))})
+
+                df_dias_tabela = pd.DataFrame(lista_linhas_dias)
+                df_edit_ponto = str_lit.data_editor(df_dias_tabela, hide_index=True, use_container_width=True)
+
+                total_50 = 0.0
+                total_100 = 0.0
+                dicionario_salvar = {}
+
+                for _, row in df_edit_ponto.iterrows():
+                    qtd = converter_hora_flexivel(row["Horas"])
+                    dicionario_salvar[row["Dia"]] = row["Horas"]
+                    if "Domingo" in row["Tipo"] or "Feriado" in row["Tipo"]:
+                        total_100 += qtd
+                    else:
+                        total_50 += qtd
+
+                str_lit.metric("Total HE 50%", f"{total_50:.2f} h")
+                str_lit.metric("Total HE 100%", f"{total_100:.2f} h")
+
+                if str_lit.button("💾 Salvar Folha de Ponto", type="primary"):
+                    conn = sqlite3.connect(DB_FILE)
+                    c = conn.cursor()
+                    c.execute("DELETE FROM folha_ponto WHERE matricula = ? AND mes_ano = ?", (matricula_atual, mes_ano_str))
+                    c.execute("INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json) VALUES (?, ?, ?, ?, ?)",
+                              (matricula_atual, mes_ano_str, total_50, total_100, json.dumps(dicionario_salvar)))
+                    c.execute("UPDATE colaboradores SET he_50 = ?, he_100 = ? WHERE matricula = ?", (total_50, total_100, matricula_atual))
+                    conn.commit()
+                    conn.close()
+                    registrar_auditoria("Folha de Ponto", f"Ponto salvo para {matricula_atual}")
+                    str_lit.success("Salvo com sucesso!")
 
     # ---------------------------------------------------------
     # MÓDULO 10: FOLGA DE CAMPO / RECESSO
