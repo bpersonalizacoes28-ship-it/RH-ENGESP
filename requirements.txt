@@ -1,5 +1,5 @@
 streamlit
 pandas
 openpyxl
-Pillow
 sqlalchemy
+psycopg2-binary
