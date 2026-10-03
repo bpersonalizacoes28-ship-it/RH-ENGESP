@@ -6,6 +6,7 @@ import re
 import pandas as pd
 import streamlit as str_lit
 import hashlib
+from sqlalchemy import create_engine, text
 
 str_lit.set_page_config(
     page_title="Sistema de Gestão ADM - ENGESP",
@@ -51,9 +52,27 @@ CNPJ_PADRAO = "37.608.361/0001-25"
 ADMIN_EMAIL = "admin@engesp.com"
 ADMIN_SENHA_PADRAO = "admin123"
 
-# Conexão com o Banco de Dados na Nuvem (PostgreSQL / Supabase via Streamlit Connection)
-def get_conn():
-    return str_lit.connection("postgresql", type="sql")
+# ---------------------------------------------------------
+# CONEXÃO DIRETA COM O SUPABASE (POSTGRESQL)
+# ---------------------------------------------------------
+def get_engine():
+    try:
+        db_url = str_lit.secrets["connections"]["postgresql"]["url"]
+    except Exception:
+        # Fallback caso a estrutura mude nos secrets
+        db_url = str_lit.secrets.get("DATABASE_URL", "")
+    
+    # Corrige o prefixo postgres:// para postgresql:// se necessário para o SQLAlchemy
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+        
+    return create_engine(db_url)
+
+def executar_query(query, params=None):
+    engine = get_engine()
+    with engine.connect() as conn:
+        df = pd.read_sql(text(query), conn, params=params or {})
+    return df
 
 def hash_senha(senha):
     """Gera um hash seguro para a senha."""
@@ -63,16 +82,16 @@ def hash_senha(senha):
 # BANCO DE DADOS - INICIALIZAÇÃO NA NUVEM
 # ---------------------------------------------------------
 def init_db():
-    conn = get_conn()
-    with conn.session as s:
-        s.execute(text("""
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 email TEXT PRIMARY KEY,
                 senha TEXT NOT NULL,
                 criado_por TEXT
             )
         """))
-        s.execute(text("""
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS logs_auditoria (
                 id SERIAL PRIMARY KEY,
                 usuario TEXT,
@@ -81,14 +100,14 @@ def init_db():
                 data_hora TEXT
             )
         """))
-        s.execute(text("""
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS filiais (
                 id SERIAL PRIMARY KEY,
                 nome TEXT NOT NULL UNIQUE,
                 cnpj TEXT
             )
         """))
-        s.execute(text("""
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS colaboradores (
                 id SERIAL PRIMARY KEY,
                 matricula TEXT UNIQUE NOT NULL,
@@ -117,7 +136,7 @@ def init_db():
                 FOREIGN KEY (filial_id) REFERENCES filiais (id)
             )
         """))
-        s.execute(text("""
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS historico_pedidos_va (
                 id SERIAL PRIMARY KEY,
                 mes_ano TEXT,
@@ -126,7 +145,7 @@ def init_db():
                 dados_json TEXT
             )
         """))
-        s.execute(text("""
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS folha_ponto (
                 id SERIAL PRIMARY KEY,
                 matricula TEXT,
@@ -136,7 +155,7 @@ def init_db():
                 dados_json TEXT
             )
         """))
-        s.execute(text("""
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS importacoes_arquivos (
                 filial_id INTEGER PRIMARY KEY,
                 nome_arquivo TEXT,
@@ -144,7 +163,7 @@ def init_db():
                 arquivo_blob BYTEA
             )
         """))
-        s.execute(text("""
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS folga_campo_recesso (
                 filial_id INTEGER PRIMARY KEY,
                 nome_arquivo TEXT,
@@ -152,19 +171,15 @@ def init_db():
                 dados_json TEXT
             )
         """))
-        s.commit()
 
     # Criação do Admin padrão se não existir
-    df_adm = conn.query("SELECT email FROM usuarios WHERE email = :email", params={"email": ADMIN_EMAIL}, ttl=0)
+    df_adm = executar_query("SELECT email FROM usuarios WHERE email = :email", {"email": ADMIN_EMAIL})
     if df_adm.empty:
-        with conn.session as s:
-            s.execute(text(
+        with engine.begin() as conn:
+            conn.execute(text(
                 "INSERT INTO usuarios (email, senha, criado_por) VALUES (:email, :senha, :criado)"
             ), {"email": ADMIN_EMAIL, "senha": hash_senha(ADMIN_SENHA_PADRAO), "criado": "Sistema"})
-            s.commit()
 
-# Importante importar text para comandos de escrita no SQL do Streamlit
-from sqlalchemy import text
 init_db()
 
 # ---------------------------------------------------------
@@ -172,12 +187,11 @@ init_db()
 # ---------------------------------------------------------
 def registrar_auditoria(acao, detalhes=""):
     usuario = str_lit.session_state.get("usuario_logado", "Sistema")
-    conn = get_conn()
-    with conn.session as s:
-        s.execute(text(
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text(
             "INSERT INTO logs_auditoria (usuario, acao, detalhes, data_hora) VALUES (:u, :a, :d, :dh)"
         ), {"u": usuario, "a": acao, "d": detalhes, "dh": datetime.now().strftime("%d/%m/%Y %H:%M:%S")})
-        s.commit()
 
 # ---------------------------------------------------------
 # FUNÇÕES DE FORMATAÇÃO E LEITURA DINÂMICA
@@ -281,9 +295,8 @@ def obter_feriados_nacionais(ano):
     return feriados
 
 def get_filiais_dict():
-    conn = get_conn()
     try:
-        df = conn.query("SELECT id, nome FROM filiais ORDER BY nome", ttl=0)
+        df = executar_query("SELECT id, nome FROM filiais ORDER BY nome")
     except Exception:
         df = pd.DataFrame(columns=["id", "nome"])
     if df.empty:
@@ -291,9 +304,8 @@ def get_filiais_dict():
     return dict(zip(df["nome"], df["id"])), dict(zip(df["id"], df["nome"]))
 
 def calcular_ultima_folga_colaborador(f_id, matricula):
-    conn = get_conn()
     try:
-        df_f = conn.query("SELECT dados_json FROM folga_campo_recesso WHERE filial_id = :fid", params={"fid": int(f_id)}, ttl=0)
+        df_f = executar_query("SELECT dados_json FROM folga_campo_recesso WHERE filial_id = :fid", {"fid": int(f_id)})
     except Exception:
         df_f = pd.DataFrame()
     if df_f.empty or not df_f.iloc[0]["dados_json"]:
@@ -334,10 +346,9 @@ if not str_lit.session_state.autenticado:
 
             if btn_entrar:
                 if not email_l.endswith("@engesp.com"):
-                    str_lit.error("⚠️ O e-mail deve terminar com `@engesp.com`.")
+                    str_lit.error("⚠️️ O e-mail deve terminar com `@engesp.com`.")
                 else:
-                    conn = get_conn()
-                    df_u = conn.query("SELECT senha FROM usuarios WHERE email = :email", params={"email": email_l}, ttl=0)
+                    df_u = executar_query("SELECT senha FROM usuarios WHERE email = :email", {"email": email_l})
                     if not df_u.empty and df_u.iloc[0]["senha"] == hash_senha(senha_l):
                         str_lit.session_state.autenticado = True
                         str_lit.session_state.usuario_logado = email_l
@@ -363,16 +374,15 @@ if not str_lit.session_state.autenticado:
                 elif len(senha_c) < 4:
                     str_lit.error("⚠️ A senha deve conter pelo menos 4 caracteres.")
                 else:
-                    conn = get_conn()
-                    df_existe = conn.query("SELECT email FROM usuarios WHERE email = :email", params={"email": email_c}, ttl=0)
+                    df_existe = executar_query("SELECT email FROM usuarios WHERE email = :email", {"email": email_c})
                     if not df_existe.empty:
                         str_lit.error("⚠️ Este e-mail já possui cadastro no sistema.")
                     else:
-                        with conn.session as s:
-                            s.execute(text(
+                        engine = get_engine()
+                        with engine.begin() as conn:
+                            conn.execute(text(
                                 "INSERT INTO usuarios (email, senha, criado_por) VALUES (:e, :s, :c)"
                             ), {"e": email_c, "s": hash_senha(senha_c), "c": "Auto-cadastro"})
-                            s.commit()
                         registrar_auditoria("Novo Usuário", f"Cadastrou a conta {email_c}")
                         str_lit.success("Conta cadastrada com sucesso! Vá para a aba 'Entrar' para acessar.")
 
@@ -390,16 +400,15 @@ if not str_lit.session_state.autenticado:
                 elif nova_senha_r != nova_senha_r2:
                     str_lit.error("⚠️ As senhas informadas não coincidem.")
                 else:
-                    conn = get_conn()
-                    df_existe = conn.query("SELECT email FROM usuarios WHERE email = :email", params={"email": email_r}, ttl=0)
+                    df_existe = executar_query("SELECT email FROM usuarios WHERE email = :email", {"email": email_r})
                     if df_existe.empty:
                         str_lit.error("⚠️ E-mail não encontrado no banco de dados.")
                     else:
-                        with conn.session as s:
-                            s.execute(text(
+                        engine = get_engine()
+                        with engine.begin() as conn:
+                            conn.execute(text(
                                 "UPDATE usuarios SET senha = :s WHERE email = :e"
                             ), {"s": hash_senha(nova_senha_r), "e": email_r})
-                            s.commit()
                         registrar_auditoria("Redefinição de Senha", f"Senha alterada para {email_r}")
                         str_lit.success("Senha alterada com sucesso! Acesse pela aba 'Entrar'.")
 
@@ -447,7 +456,6 @@ else:
     # ---------------------------------------------------------
     if menu == "📊 Dashboard / Consulta":
         str_lit.title("📊 Painel de Gestão")
-        conn = get_conn()
         query = """
             SELECT c.id, c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
                    c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo",
@@ -458,7 +466,7 @@ else:
             LEFT JOIN filiais f ON c.filial_id = f.id
         """
         try:
-            df = conn.query(query, ttl=0)
+            df = executar_query(query)
         except Exception:
             df = pd.DataFrame()
 
@@ -499,12 +507,11 @@ else:
                     str_lit.error("O nome da filial é obrigatório.")
                 else:
                     try:
-                        conn = get_conn()
-                        with conn.session as s:
-                            s.execute(text(
+                        engine = get_engine()
+                        with engine.begin() as conn:
+                            conn.execute(text(
                                 "INSERT INTO filiais (nome, cnpj) VALUES (:n, :c)"
                             ), {"n": nome_f, "c": formatar_cnpj(cnpj_f)})
-                            s.commit()
                         registrar_auditoria("Cadastro de Filial", f"Cadastrou a filial {nome_f}")
                         str_lit.success(f"Filial '{nome_f}' cadastrada com sucesso!")
                         str_lit.rerun()
@@ -513,9 +520,8 @@ else:
 
         str_lit.markdown("---")
         str_lit.subheader("Filiais Cadastradas e Gerenciamento")
-        conn = get_conn()
         try:
-            df_f_cad = conn.query("SELECT id, nome, cnpj FROM filiais ORDER BY nome", ttl=0)
+            df_f_cad = executar_query("SELECT id, nome, cnpj FROM filiais ORDER BY nome")
         except Exception:
             df_f_cad = pd.DataFrame()
 
@@ -534,13 +540,12 @@ else:
                 if str_lit.button("🗑️ Deletar Filial Selecionada", type="secondary"):
                     if filial_para_deletar:
                         f_id_del = filiais_dict_del[filial_para_deletar]
-                        conn = get_conn()
-                        with conn.session as s:
-                            s.execute(text("DELETE FROM colaboradores WHERE filial_id = :fid"), {"fid": int(f_id_del)})
-                            s.execute(text("DELETE FROM importacoes_arquivos WHERE filial_id = :fid"), {"fid": int(f_id_del)})
-                            s.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_del)})
-                            s.execute(text("DELETE FROM filiais WHERE id = :fid"), {"fid": int(f_id_del)})
-                            s.commit()
+                        engine = get_engine()
+                        with engine.begin() as conn:
+                            conn.execute(text("DELETE FROM colaboradores WHERE filial_id = :fid"), {"fid": int(f_id_del)})
+                            conn.execute(text("DELETE FROM importacoes_arquivos WHERE filial_id = :fid"), {"fid": int(f_id_del)})
+                            conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_del)})
+                            conn.execute(text("DELETE FROM filiais WHERE id = :fid"), {"fid": int(f_id_del)})
                         registrar_auditoria("Exclusão de Filial", f"Removeu a filial {filial_para_deletar}")
                         str_lit.success(f"Filial '{filial_para_deletar}' excluída com sucesso!")
                         str_lit.rerun()
@@ -562,9 +567,8 @@ else:
             filial_imp = str_lit.selectbox("Selecione a Filial de Destino:", options=list(f_map_atual.keys()))
             filial_id_atual = f_map_atual[filial_imp]
 
-            conn = get_conn()
             try:
-                df_arq_salvo = conn.query("SELECT nome_arquivo, data_importacao FROM importacoes_arquivos WHERE filial_id = :fid", params={"fid": int(filial_id_atual)}, ttl=0)
+                df_arq_salvo = executar_query("SELECT nome_arquivo, data_importacao FROM importacoes_arquivos WHERE filial_id = :fid", {"fid": int(filial_id_atual)})
             except Exception:
                 df_arq_salvo = pd.DataFrame()
 
@@ -572,10 +576,10 @@ else:
                 row_arq = df_arq_salvo.iloc[0]
                 str_lit.success(f"📂 **Planilha de colaboradores arquivada:** `{row_arq['nome_arquivo']}` (Importada em: {row_arq['data_importacao']})")
                 if str_lit.button("🗑️ Apagar Lista e Colaboradores Desta Filial", type="secondary"):
-                    with conn.session as s:
-                        s.execute(text("DELETE FROM colaboradores WHERE filial_id = :fid"), {"fid": int(filial_id_atual)})
-                        s.execute(text("DELETE FROM importacoes_arquivos WHERE filial_id = :fid"), {"fid": int(filial_id_atual)})
-                        s.commit()
+                    engine = get_engine()
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM colaboradores WHERE filial_id = :fid"), {"fid": int(filial_id_atual)})
+                        conn.execute(text("DELETE FROM importacoes_arquivos WHERE filial_id = :fid"), {"fid": int(filial_id_atual)})
                     registrar_auditoria("Limpeza de Filial", f"Apagou colaboradores da filial {filial_imp}")
                     str_lit.success("Colaboradores apagados com sucesso!")
                     str_lit.rerun()
@@ -596,13 +600,13 @@ else:
                     str_lit.dataframe(df_imp.head(), use_container_width=True)
 
                     if str_lit.button("🚀 Processar e Salvar Dados"):
-                        conn_w = get_conn()
                         inseridos = 0
                         atualizados = 0
                         f_dict_rec, _ = get_filiais_dict()
                         f_id_dest = f_dict_rec.get(filial_imp)
 
-                        with conn_w.session as s:
+                        engine = get_engine()
+                        with engine.begin() as conn:
                             for _, r in df_imp.iterrows():
                                 mat = str(r.get(colunas_map_normalizado.get("MATRÍCULA", "matricula"), r.get("MATRICULA", ""))).strip()
                                 if not mat or mat.lower() == "nan":
@@ -622,10 +626,10 @@ else:
                                 nome_col_chave = colunas_map_normalizado.get("NOME", colunas_map_normalizado.get("EMPREGADO", colunas_map_normalizado.get("FUNCIONÁRIO", None)))
                                 nome_v = str(r.get(nome_col_chave, f"Colaborador {mat}")).strip() if nome_col_chave else f"Colaborador {mat}"
 
-                                res_verif = s.execute(text("SELECT id, status_colaborador FROM colaboradores WHERE matricula = :m"), {"m": mat}).fetchone()
+                                res_verif = conn.execute(text("SELECT id, status_colaborador FROM colaboradores WHERE matricula = :m"), {"m": mat}).fetchone()
                                 if res_verif:
                                     st_atual = res_verif[1] if res_verif[1] else 'Ativo'
-                                    s.execute(text("""
+                                    conn.execute(text("""
                                         UPDATE colaboradores 
                                         SET nome = :n, tipo_movimentacao = :tm, subtipo_movimentacao = :stm, data_movimentacao = :dm, 
                                             funcao = :f, data_contratacao = :da, cpf = :cpf, rg = :rg, observacoes = :obs, 
@@ -638,7 +642,7 @@ else:
                                     })
                                     atualizados += 1
                                 else:
-                                    s.execute(text("""
+                                    conn.execute(text("""
                                         INSERT INTO colaboradores (
                                             matricula, nome, tipo_movimentacao, subtipo_movimentacao, data_movimentacao, 
                                             funcao, data_contratacao, cpf, rg, observacoes, tipo_contratacao, 
@@ -651,13 +655,12 @@ else:
                                     })
                                     inseridos += 1
 
-                            s.execute(text("""
+                            conn.execute(text("""
                                 INSERT INTO importacoes_arquivos (filial_id, nome_arquivo, data_importacao, arquivo_blob)
                                 VALUES (:fid, :na, :di, :ab)
                                 ON CONFLICT (filial_id) DO UPDATE 
                                 SET nome_arquivo = EXCLUDED.nome_arquivo, data_importacao = EXCLUDED.data_importacao, arquivo_blob = EXCLUDED.arquivo_blob
                             """), {"fid": int(f_id_dest), "na": nome_arq, "di": datetime.now(), "ab": bytes_arquivo})
-                            s.commit()
 
                         registrar_auditoria("Importação Colaboradores", f"Filial {filial_imp}: {inseridos} novos, {atualizados} atualizados.")
                         str_lit.success(f"Importação realizada com sucesso! Novos: {inseridos} | Atualizados: {atualizados}")
@@ -670,15 +673,14 @@ else:
     # ---------------------------------------------------------
     elif menu == "🔄 Transferência entre Filiais":
         str_lit.title("🔄 Transferência de Colaboradores entre Filiais")
-        conn = get_conn()
         try:
-            df_transf = conn.query("""
+            df_transf = executar_query("""
                 SELECT c.matricula, c.nome, c.funcao as cargo, c.filial_id, f.nome as filial_nome
                 FROM colaboradores c
                 LEFT JOIN filiais f ON c.filial_id = f.id
                 WHERE c.status_colaborador = 'Ativo'
                 ORDER BY c.nome
-            """, ttl=0)
+            """)
         except Exception:
             df_transf = pd.DataFrame()
 
@@ -704,15 +706,14 @@ else:
                         str_lit.error("Selecione pelo menos um colaborador.")
                     else:
                         nova_filial_id = filiais_nome_para_id[filial_destino]
-                        conn_w = get_conn()
-                        with conn_w.session as s:
+                        engine = get_engine()
+                        with engine.begin() as conn:
                             for mat_t in matriculas_selecionadas:
-                                s.execute(text("""
+                                conn.execute(text("""
                                     UPDATE colaboradores
                                     SET filial_id = :fid, tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Transferência', data_movimentacao = :dm
                                     WHERE matricula = :m
                                 """), {"fid": int(nova_filial_id), "dm": str(data_transf), "m": mat_t})
-                            s.commit()
                         registrar_auditoria("Transferencia em Lote", f"{len(matriculas_selecionadas)} transferidos para {filial_destino}")
                         str_lit.success("Transferência realizada com sucesso!")
                         str_lit.rerun()
@@ -725,9 +726,8 @@ else:
         aba_ativos, aba_demitidos = str_lit.tabs(["🟢 Colaboradores Ativos", "🔴 Colaboradores Demitidos"])
 
         with aba_ativos:
-            conn = get_conn()
             try:
-                df_filiais_colab = conn.query("SELECT id, nome FROM filiais ORDER BY nome", ttl=0)
+                df_filiais_colab = executar_query("SELECT id, nome FROM filiais ORDER BY nome")
             except Exception:
                 df_filiais_colab = pd.DataFrame()
 
@@ -738,7 +738,7 @@ else:
                 filial_escolhida_colab_mod = str_lit.selectbox("🏢 Selecione a Filial (Ativos):", lista_nomes_f, key="sel_filial_ativos")
                 try:
                     if filial_escolhida_colab_mod == "Todas as Filiais":
-                        df_res = conn.query("""
+                        df_res = executar_query("""
                             SELECT c.matricula as "MATRÍCULA", c.nome as "NOME COMPLETO", f.nome as "FILIAL",
                                    c.tipo_movimentacao as "TIPO", c.subtipo_movimentacao as "SUBTIPO",
                                    c.data_movimentacao as "DATA MOVIMENTAÇÃO", c.funcao as "CARGO",
@@ -750,10 +750,10 @@ else:
                             LEFT JOIN filiais f ON c.filial_id = f.id
                             WHERE c.status_colaborador = 'Ativo'
                             ORDER BY c.nome
-                        """, ttl=0)
+                        """)
                     else:
                         f_id_sel = filiais_nome_para_id[filial_escolhida_colab_mod]
-                        df_res = conn.query("""
+                        df_res = executar_query("""
                             SELECT c.matricula as "MATRÍCULA", c.nome as "NOME COMPLETO", f.nome as "FILIAL",
                                    c.tipo_movimentacao as "TIPO", c.subtipo_movimentacao as "SUBTIPO",
                                    c.data_movimentacao as "DATA MOVIMENTAÇÃO", c.funcao as "CARGO",
@@ -765,12 +765,12 @@ else:
                             LEFT JOIN filiais f ON c.filial_id = f.id
                             WHERE c.filial_id = :fid AND c.status_colaborador = 'Ativo'
                             ORDER BY c.nome
-                        """, params={"fid": int(f_id_sel)}, ttl=0)
+                        """, {"fid": int(f_id_sel)})
                 except Exception:
                     df_res = pd.DataFrame()
 
                 if df_res.empty:
-                    str_lit.info("ℹ️ Nenhum colaborador ativo.")
+                    str_lit.info("ℹ️️ Nenhum colaborador ativo.")
                 else:
                     for col_d in ["DATA MOVIMENTAÇÃO", "DATA ADMISSÃO"]:
                         if col_d in df_res.columns:
@@ -798,10 +798,10 @@ else:
                     c_b_salvar, c_b_demitir = str_lit.columns(2)
                     with c_b_salvar:
                         if str_lit.button("💾 Salvar Alterações dos Ativos", type="primary"):
-                            conn_w = get_conn()
-                            with conn_w.session as s:
+                            engine = get_engine()
+                            with engine.begin() as conn:
                                 for _, row in df_editado_colab.iterrows():
-                                    s.execute(text("""
+                                    conn.execute(text("""
                                         UPDATE colaboradores 
                                         SET nome = :n, tipo_movimentacao = :tm, subtipo_movimentacao = :stm, data_movimentacao = :dm,
                                             funcao = :f, data_contratacao = :da, cpf = :cpf, rg = :rg, observacoes = :obs,
@@ -812,7 +812,6 @@ else:
                                         "f": row["CARGO"], "da": parse_data_rigorosa(row["DATA ADMISSÃO"]), "cpf": formatar_cpf(row["CPF"]), "rg": row["RG"],
                                         "obs": row["OBSERVAÇÕES"], "tc": row["TIPO DE CONTRATAÇÃO"], "p": row["PERICULOSIDADE"], "ac": row["AJUDA DE CUSTO (R$)"], "m": row["MATRÍCULA"]
                                     })
-                                s.commit()
                             registrar_auditoria("Edição Resumo", "Atualizou dados consolidados.")
                             str_lit.success("Salvo com sucesso!")
                             str_lit.rerun()
@@ -821,20 +820,18 @@ else:
                         if str_lit.button("🔴 Enviar Selecionados para Demitidos", type="secondary"):
                             mats_dem = df_editado_colab[df_editado_colab["Demitir?"] == True]["MATRÍCULA"].tolist()
                             if mats_dem:
-                                conn_w = get_conn()
-                                with conn_w.session as s:
+                                engine = get_engine()
+                                with engine.begin() as conn:
                                     for mat_d in mats_dem:
-                                        s.execute(text("UPDATE colaboradores SET status_colaborador = 'Demitido', data_demissao = :dt WHERE matricula = :m"), {"dt": str(date.today()), "m": mat_d})
-                                    s.commit()
+                                        conn.execute(text("UPDATE colaboradores SET status_colaborador = 'Demitido', data_demissao = :dt WHERE matricula = :m"), {"dt": str(date.today()), "m": mat_d})
                                 registrar_auditoria("Demissão", f"Moveu {len(mats_dem)} para demitidos.")
                                 str_lit.success("Colaboradores movidos para demitidos!")
                                 str_lit.rerun()
 
         with aba_demitidos:
             str_lit.subheader("🔴 Colaboradores Demitidos")
-            conn = get_conn()
             try:
-                df_dem = conn.query("""
+                df_dem = executar_query("""
                     SELECT c.matricula as "MATRÍCULA", c.nome as "NOME COMPLETO", f.nome as "FILIAL",
                            c.funcao as "CARGO", c.data_contratacao as "DATA ADMISSÃO", c.data_demissao as "DATA DEMISSÃO", 
                            c.cpf as "CPF", c.observacoes as "OBSERVAÇÕES", c.tipo_contratacao as "CONTRATAÇÃO"
@@ -842,7 +839,7 @@ else:
                     LEFT JOIN filiais f ON c.filial_id = f.id
                     WHERE c.status_colaborador = 'Demitido'
                     ORDER BY c.nome
-                """, ttl=0)
+                """)
             except Exception:
                 df_dem = pd.DataFrame()
 
@@ -865,11 +862,10 @@ else:
                 }, hide_index=True, use_container_width=True)
 
                 if str_lit.button("💾 Salvar Alterações dos Demitidos", type="primary"):
-                    conn_w = get_conn()
-                    with conn_w.session as s:
+                    engine = get_engine()
+                    with engine.begin() as conn:
                         for _, row in df_editado_dem.iterrows():
-                            s.execute(text("UPDATE colaboradores SET data_demissao = :dt WHERE matricula = :m"), {"dt": parse_data_rigorosa(row["DATA DEMISSÃO"]), "m": row["MATRÍCULA"]})
-                        s.commit()
+                            conn.execute(text("UPDATE colaboradores SET data_demissao = :dt WHERE matricula = :m"), {"dt": parse_data_rigorosa(row["DATA DEMISSÃO"]), "m": row["MATRÍCULA"]})
                     str_lit.success("Datas de demissão salvas!")
                     str_lit.rerun()
 
@@ -910,9 +906,9 @@ else:
                     str_lit.error("Preencha Empregado e Matrícula.")
                 else:
                     try:
-                        conn_w = get_conn()
-                        with conn_w.session as s:
-                            s.execute(text("""
+                        engine = get_engine()
+                        with engine.begin() as conn:
+                            conn.execute(text("""
                                 INSERT INTO colaboradores (
                                     matricula, nome, tipo_movimentacao, subtipo_movimentacao, data_movimentacao,
                                     funcao, data_contratacao, cpf, rg, observacoes, tipo_contratacao,
@@ -923,7 +919,6 @@ else:
                                 "f": cargo, "da": str(data_admissao), "cpf": formatar_cpf(cpf), "rg": rg, "obs": observacoes,
                                 "tc": tipo_contratacao, "p": periculosidade_in, "ac": ajuda_custo_in, "fid": int(filiais_nome_para_id[filial_nome]), "cnpj": CNPJ_PADRAO
                             })
-                            s.commit()
                         registrar_auditoria("Novo Colaborador", f"Cadastrou {empregado}")
                         str_lit.success("Colaborador cadastrado com sucesso!")
                     except Exception:
@@ -934,9 +929,8 @@ else:
     # ---------------------------------------------------------
     elif menu == "✏️ Editar Cadastro do Colaborador":
         str_lit.title("✏️ Editar Cadastro Individual do Colaborador")
-        conn = get_conn()
         try:
-            df_colab_geral = conn.query("SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial FROM colaboradores c LEFT JOIN filiais f ON c.filial_id = f.id ORDER BY c.nome", ttl=0)
+            df_colab_geral = executar_query("SELECT c.matricula, c.nome, c.funcao as cargo, f.nome as filial FROM colaboradores c LEFT JOIN filiais f ON c.filial_id = f.id ORDER BY c.nome")
         except Exception:
             df_colab_geral = pd.DataFrame()
 
@@ -953,7 +947,7 @@ else:
                 colab_sel = str_lit.selectbox("Selecione o Colaborador:", options=opcoes_colab)
                 if colab_sel:
                     mat_sel = colab_sel.split(" - ")[0]
-                    df_det = conn.query("SELECT * FROM colaboradores WHERE matricula = :m", params={"m": mat_sel}, ttl=0)
+                    df_det = executar_query("SELECT * FROM colaboradores WHERE matricula = :m", {"m": mat_sel})
                     if not df_det.empty:
                         row_d = df_det.iloc[0]
                         with str_lit.form("form_edicao_individual"):
@@ -967,14 +961,13 @@ else:
                             n_obs = str_lit.text_area("Observações", value=str(row_d["observacoes"] or ""))
 
                             if str_lit.form_submit_button("💾 Salvar Alterações"):
-                                conn_w = get_conn()
-                                with conn_w.session as s:
-                                    s.execute(text("""
+                                engine = get_engine()
+                                with engine.begin() as conn:
+                                    conn.execute(text("""
                                         UPDATE colaboradores 
                                         SET nome = :n, funcao = :f, cpf = :cpf, rg = :rg, periculosidade = :p, ajuda_custo = :ac, status_colaborador = :st, observacoes = :obs
                                         WHERE matricula = :m
                                     """), {"n": n_nome, "f": n_cargo, "cpf": formatar_cpf(n_cpf), "rg": n_rg, "p": n_peric, "ac": n_ajuda, "st": n_status, "obs": n_obs, "m": mat_sel})
-                                    s.commit()
                                 registrar_auditoria("Edição Individual", f"Atualizou {mat_sel}")
                                 str_lit.success("Atualizado com sucesso!")
                                 str_lit.rerun()
@@ -1000,9 +993,8 @@ else:
                 ano_va = c_ano_va.number_input("Ano:", min_value=2020, max_value=2100, value=datetime.now().year)
                 mes_ano_str = f"{mes_va} de {ano_va}"
 
-                conn = get_conn()
                 try:
-                    df_va_raw = conn.query("SELECT cnpj_empresa, nome, cpf, premiacao, mobilidade, alimentacao, tipo_usuario_va, matricula FROM colaboradores WHERE filial_id = :fid AND status_colaborador = 'Ativo' ORDER BY nome", params={"fid": int(f_id)}, ttl=0)
+                    df_va_raw = executar_query("SELECT cnpj_empresa, nome, cpf, premiacao, mobilidade, alimentacao, tipo_usuario_va, matricula FROM colaboradores WHERE filial_id = :fid AND status_colaborador = 'Ativo' ORDER BY nome", {"fid": int(f_id)})
                 except Exception:
                     df_va_raw = pd.DataFrame()
 
@@ -1040,22 +1032,21 @@ else:
                     c_btn1, c_btn2 = str_lit.columns(2)
                     with c_btn1:
                         if str_lit.button("💾 Salvar Alterações e Registrar Pedido", type="primary"):
-                            conn_w = get_conn()
-                            with conn_w.session as s:
+                            engine = get_engine()
+                            with engine.begin() as conn:
                                 for idx, row in df_va_editado.iterrows():
                                     mat_real = df_va_final.iloc[idx]["_matricula"]
-                                    s.execute(text("""
+                                    conn.execute(text("""
                                         UPDATE colaboradores 
                                         SET premiacao = :pr, mobilidade = :mb, alimentacao = :al, tipo_usuario_va = :tu
                                         WHERE matricula = :m
                                     """), {"pr": row["PREMIACAO"], "mb": row["MOBILIDADE"], "al": row["ALIMENTACAO"], "tu": row["TAGS"], "m": mat_real})
                                 
                                 dados_json_ped = df_va_editado.to_json(orient="records", force_ascii=False)
-                                s.execute(text("""
+                                conn.execute(text("""
                                     INSERT INTO historico_pedidos_va (mes_ano, obra, data_geracao, dados_json)
                                     VALUES (:ma, :ob, :dg, :dj)
                                 """), {"ma": mes_ano_str, "ob": filial_va, "dg": datetime.now(), "dj": dados_json_ped})
-                                s.commit()
                             registrar_auditoria("Pedido VA", f"Registrou pedido de VA da filial {filial_va}")
                             str_lit.success("Salvo com sucesso!")
                             str_lit.rerun()
@@ -1076,9 +1067,8 @@ else:
 
         with aba_historico_pedidos:
             str_lit.subheader("📜 Histórico de Pedidos")
-            conn = get_conn()
             try:
-                df_hist = conn.query("SELECT id, mes_ano, obra, data_geracao FROM historico_pedidos_va ORDER BY data_geracao DESC", ttl=0)
+                df_hist = executar_query("SELECT id, mes_ano, obra, data_geracao FROM historico_pedidos_va ORDER BY data_geracao DESC")
             except Exception:
                 df_hist = pd.DataFrame()
             if df_hist.empty:
@@ -1091,9 +1081,8 @@ else:
     # ---------------------------------------------------------
     elif menu == "⏱️ Folha de Ponto":
         str_lit.title("⏱️ Controle de Folha de Ponto e Horas Extras")
-        conn = get_conn()
         try:
-            df_ponto = conn.query("SELECT c.matricula as \"Matrícula\", c.nome as \"Empregado\", f.nome as \"Filial\" FROM colaboradores c LEFT JOIN filiais f ON c.filial_id = f.id WHERE c.status_colaborador = 'Ativo' ORDER BY c.nome", ttl=0)
+            df_ponto = executar_query("SELECT c.matricula as \"Matrícula\", c.nome as \"Empregado\", f.nome as \"Filial\" FROM colaboradores c LEFT JOIN filiais f ON c.filial_id = f.id WHERE c.status_colaborador = 'Ativo' ORDER BY c.nome")
         except Exception:
             df_ponto = pd.DataFrame()
 
@@ -1120,7 +1109,7 @@ else:
                 nomes_dias_semana = {0: "Segunda", 1: "Terça", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sábado", 6: "Domingo"}
                 feriados_do_ano = obter_feriados_nacionais(int(ano_escolhido))
 
-                df_salvo_ponto = conn.query("SELECT dados_json FROM folha_ponto WHERE matricula = :m AND mes_ano = :ma", params={"m": matricula_atual, "ma": mes_ano_str}, ttl=0)
+                df_salvo_ponto = executar_query("SELECT dados_json FROM folha_ponto WHERE matricula = :m AND mes_ano = :ma", {"m": matricula_atual, "ma": mes_ano_str})
                 dados_anteriores = json.loads(df_salvo_ponto.iloc[0]["dados_json"]) if not df_salvo_ponto.empty and df_salvo_ponto.iloc[0]["dados_json"] else {}
 
                 lista_linhas_dias = []
@@ -1149,14 +1138,13 @@ else:
                 str_lit.metric("Total HE 100%", f"{total_100:.2f} h")
 
                 if str_lit.button("💾 Salvar Folha de Ponto", type="primary"):
-                    conn_w = get_conn()
-                    with conn_w.session as s:
-                        s.execute(text("DELETE FROM folha_ponto WHERE matricula = :m AND mes_ano = :ma"), {"m": matricula_atual, "ma": mes_ano_str})
-                        s.execute(text("INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json) VALUES (:m, :ma, :t50, :t100, :dj)"), {
+                    engine = get_engine()
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM folha_ponto WHERE matricula = :m AND mes_ano = :ma"), {"m": matricula_atual, "ma": mes_ano_str})
+                        conn.execute(text("INSERT INTO folha_ponto (matricula, mes_ano, total_50, total_100, dados_json) VALUES (:m, :ma, :t50, :t100, :dj)"), {
                             "m": matricula_atual, "ma": mes_ano_str, "t50": total_50, "t100": total_100, "dj": json.dumps(dicionario_salvar)
                         })
-                        s.execute(text("UPDATE colaboradores SET he_50 = :t50, he_100 = :t100 WHERE matricula = :m"), {"t50": total_50, "t100": total_100, "m": matricula_atual})
-                        s.commit()
+                        conn.execute(text("UPDATE colaboradores SET he_50 = :t50, he_100 = :t100 WHERE matricula = :m"), {"t50": total_50, "t100": total_100, "m": matricula_atual})
                     registrar_auditoria("Folha de Ponto", f"Ponto salvo para {matricula_atual}")
                     str_lit.success("Salvo com sucesso!")
 
@@ -1172,9 +1160,8 @@ else:
             filial_folga_sel = str_lit.selectbox("🏢 Selecione a Filial / Obra:", options=list(f_map_folga.keys()), key="sel_filial_folga")
             f_id_folga = f_map_folga[filial_folga_sel]
 
-            conn = get_conn()
             try:
-                df_f_db = conn.query("SELECT dados_json FROM folga_campo_recesso WHERE filial_id = :fid", params={"fid": int(f_id_folga)}, ttl=0)
+                df_f_db = executar_query("SELECT dados_json FROM folga_campo_recesso WHERE filial_id = :fid", {"fid": int(f_id_folga)})
             except Exception:
                 df_f_db = pd.DataFrame()
 
@@ -1187,7 +1174,7 @@ else:
 
             if df_trabalho.empty:
                 try:
-                    df_colabs_filial = conn.query("SELECT matricula, nome FROM colaboradores WHERE filial_id = :fid AND status_colaborador = 'Ativo'", params={"fid": int(f_id_folga)}, ttl=0)
+                    df_colabs_filial = executar_query("SELECT matricula, nome FROM colaboradores WHERE filial_id = :fid AND status_colaborador = 'Ativo'", {"fid": int(f_id_folga)})
                 except Exception:
                     df_colabs_filial = pd.DataFrame()
 
@@ -1239,15 +1226,14 @@ else:
                 with c_b1:
                     if str_lit.button("💾 Salvar Folgas", type="primary"):
                         json_str_folga = df_edit_folga.to_json(orient="records", force_ascii=False)
-                        conn_w = get_conn()
-                        with conn_w.session as s:
-                            s.execute(text("""
+                        engine = get_engine()
+                        with engine.begin() as conn:
+                            conn.execute(text("""
                                 INSERT INTO folga_campo_recesso (filial_id, nome_arquivo, data_importacao, dados_json)
                                 VALUES (:fid, :na, :di, :dj)
                                 ON CONFLICT (filial_id) DO UPDATE 
                                 SET nome_arquivo = EXCLUDED.nome_arquivo, data_importacao = EXCLUDED.data_importacao, dados_json = EXCLUDED.dados_json
                             """), {"fid": int(f_id_folga), "na": f"Controle_Folga_{filial_folga_sel}.xlsx", "di": datetime.now(), "dj": json_str_folga})
-                            s.commit()
                         registrar_auditoria("Folga de Campo Salva", f"Atualizou folgas da filial {filial_folga_sel}")
                         str_lit.success("Salvo com sucesso!")
                         str_lit.rerun()
@@ -1259,11 +1245,10 @@ else:
                     str_lit.download_button(label="📥 Exportar Excel", data=output_f.getvalue(), file_name=f"Folga_Campo_{filial_folga_sel}.xlsx".replace(" ", "_"), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
                 with c_b3:
-                    if str_lit.button("🗑️ Apagar Registros", type="secondary"):
-                        conn_w = get_conn()
-                        with conn_w.session as s:
-                            s.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_folga)})
-                            s.commit()
+                    if str_lit.button("🗑️️ Apagar Registros", type="secondary"):
+                        engine = get_engine()
+                        with engine.begin() as conn:
+                            conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_folga)})
                         registrar_auditoria("Limpeza Folga", f"Removeu folgas da filial {filial_folga_sel}")
                         str_lit.success("Apagado com sucesso!")
                         str_lit.rerun()
@@ -1276,9 +1261,8 @@ else:
             str_lit.error("⚠️ Acesso não autorizado.")
         else:
             str_lit.title("🛡️ Auditoria e Logs de Atividades")
-            conn = get_conn()
             try:
-                df_logs = conn.query("SELECT id as 'ID', usuario as 'Usuário', acao as 'Ação', detalhes as 'Detalhes', data_hora as 'Data/Hora' FROM logs_auditoria ORDER BY id DESC", ttl=0)
+                df_logs = executar_query("SELECT id as 'ID', usuario as 'Usuário', acao as 'Ação', detalhes as 'Detalhes', data_hora as 'Data/Hora' FROM logs_auditoria ORDER BY id DESC")
             except Exception:
                 df_logs = pd.DataFrame()
             if df_logs.empty:
