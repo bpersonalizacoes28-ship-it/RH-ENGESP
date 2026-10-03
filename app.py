@@ -53,16 +53,21 @@ ADMIN_EMAIL = "admin@engesp.com"
 ADMIN_SENHA_PADRAO = "admin123"
 
 # ---------------------------------------------------------
-# CONEXÃO COM TESTE DE LEITURA DO SECRETS
+# CONEXÃO SEGURA COM O SUPABASE
 # ---------------------------------------------------------
 def get_engine():
+    # Tenta ler do formato de conexões do Streamlit ou de uma variável simples
     try:
-        db_url = st.secrets["connections"]["postgresql"]["url"]
-        st.write("DEBUG: Conseguiu ler o link do secrets com sucesso!")
-    except Exception as e:
-        st.error(f"ERRO DE LEITURA DOS SECRETS: O Streamlit não achou o segredo. Detalhe: {e}")
-        db_url = ""
+        db_url = str_lit.secrets["connections"]["postgresql"]["url"]
+    except Exception:
+        try:
+            db_url = str_lit.secrets["DATABASE_URL"]
+        except Exception:
+            db_url = ""
     
+    if not db_url:
+        str_lit.error("⚠️ O Streamlit não encontrou o link do banco nos Secrets! Verifique as configurações.")
+        
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
         
@@ -70,7 +75,7 @@ def get_engine():
         db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         
     return create_engine(db_url)
-
+    
 # ---------------------------------------------------------
 # BANCO DE DADOS - INICIALIZAÇÃO NA NUVEM
 # ---------------------------------------------------------
