@@ -176,6 +176,13 @@ def init_db():
             conn.execute(text(
                 "INSERT INTO usuarios (email, senha, criado_por) VALUES (:email, :senha, :criado)"
             ), {"email": ADMIN_EMAIL, "senha": hash_senha(ADMIN_SENHA_PADRAO), "criado": "Sistema"})
+            
+            # Definindo o Administrador Inicial
+ADMIN_EMAIL = "admin@engesp.com"  # Coloque o seu e-mail aqui
+ADMIN_SENHA_PADRAO = "Engesp@2026"    # Coloque uma senha inicial aqui
+
+# Inicializa o banco de dados
+init_db()
 
 init_db()
 
