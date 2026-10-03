@@ -53,18 +53,20 @@ ADMIN_EMAIL = "admin@engesp.com"
 ADMIN_SENHA_PADRAO = "admin123"
 
 # ---------------------------------------------------------
-# CONEXÃO DIRETA COM O SUPABASE (POSTGRESQL)
+# CONEXÃO DIRETA COM O SUPABASE (POSTGRESQL FORÇANDO PSYCOPG2)
 # ---------------------------------------------------------
 def get_engine():
     try:
         db_url = str_lit.secrets["connections"]["postgresql"]["url"]
     except Exception:
-        # Fallback caso a estrutura mude nos secrets
         db_url = str_lit.secrets.get("DATABASE_URL", "")
     
-    # Corrige o prefixo postgres:// para postgresql:// se necessário para o SQLAlchemy
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
+        
+    # Força o uso explícito do driver psycopg2 para evitar o erro do psycopg moderno
+    if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg2://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         
     return create_engine(db_url)
 
@@ -75,7 +77,6 @@ def executar_query(query, params=None):
     return df
 
 def hash_senha(senha):
-    """Gera um hash seguro para a senha."""
     return hashlib.sha256(senha.encode()).hexdigest()
 
 # ---------------------------------------------------------
@@ -172,7 +173,6 @@ def init_db():
             )
         """))
 
-    # Criação do Admin padrão se não existir
     df_adm = executar_query("SELECT email FROM usuarios WHERE email = :email", {"email": ADMIN_EMAIL})
     if df_adm.empty:
         with engine.begin() as conn:
@@ -346,7 +346,7 @@ if not str_lit.session_state.autenticado:
 
             if btn_entrar:
                 if not email_l.endswith("@engesp.com"):
-                    str_lit.error("⚠️️ O e-mail deve terminar com `@engesp.com`.")
+                    str_lit.error("⚠️ O e-mail deve terminar com `@engesp.com`.")
                 else:
                     df_u = executar_query("SELECT senha FROM usuarios WHERE email = :email", {"email": email_l})
                     if not df_u.empty and df_u.iloc[0]["senha"] == hash_senha(senha_l):
@@ -436,7 +436,7 @@ else:
     ]
 
     if str_lit.session_state.usuario_logado.lower() == ADMIN_EMAIL.lower():
-        lista_modulos.append("🛡️ Auditoria de Sistema")
+        lista_modulos.append("🛡️️ Auditoria de Sistema")
 
     str_lit.markdown("### 🏢 Sistema de Gestão ADM")
     menu = str_lit.selectbox(
@@ -770,7 +770,7 @@ else:
                     df_res = pd.DataFrame()
 
                 if df_res.empty:
-                    str_lit.info("ℹ️️ Nenhum colaborador ativo.")
+                    str_lit.info("ℹ️ Nenhum colaborador ativo.")
                 else:
                     for col_d in ["DATA MOVIMENTAÇÃO", "DATA ADMISSÃO"]:
                         if col_d in df_res.columns:
@@ -1245,7 +1245,7 @@ else:
                     str_lit.download_button(label="📥 Exportar Excel", data=output_f.getvalue(), file_name=f"Folga_Campo_{filial_folga_sel}.xlsx".replace(" ", "_"), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
                 with c_b3:
-                    if str_lit.button("🗑️️ Apagar Registros", type="secondary"):
+                    if str_lit.button("🗑️ Apagar Registros", type="secondary"):
                         engine = get_engine()
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_folga)})
