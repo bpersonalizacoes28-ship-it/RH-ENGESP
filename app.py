@@ -14,8 +14,8 @@ str_lit.set_page_config(
     initial_sidebar_state="expanded",
 )
 # Configuração do Administrador Inicial
-ADMIN_EMAIL = "admin@admin.com"
-ADMIN_SENHA_PADRAO = "123456"
+ADMIN_EMAIL = "admin@engesp.com"
+ADMIN_SENHA_PADRAO = "Engesp@2026"
 
 # =========================================================
 # ESTILIZAÇÃO CSS
@@ -53,7 +53,7 @@ str_lit.markdown(
 
 CNPJ_PADRAO = "37.608.361/0001-25"
 ADMIN_EMAIL = "admin@engesp.com"
-ADMIN_SENHA_PADRAO = "admin123"
+ADMIN_SENHA_PADRAO = "Engesp@2026"
 
 # ---------------------------------------------------------
 # CONEXÃO SEGURA COM O SUPABASE
@@ -84,8 +84,8 @@ def get_engine():
 # ---------------------------------------------------------
 def init_db():
     # Definimos o e-mail e senha direto aqui dentro para não dar erro
-    ADMIN_EMAIL = "admin@admin.com"
-    ADMIN_SENHA_PADRAO = "123456"
+    ADMIN_EMAIL = "admin@engesp.com"
+    ADMIN_SENHA_PADRAO = "Engesp@2026"
     
     engine = get_engine()
     with engine.begin() as conn:
@@ -186,8 +186,8 @@ def init_db():
             ), {"email": ADMIN_EMAIL, "senha": hash_senha(ADMIN_SENHA_PADRAO), "criado": "Sistema"})
             
             # Definindo o Administrador Inicial
-ADMIN_EMAIL = "admin@engesp.com"  # Coloque o seu e-mail aqui
-ADMIN_SENHA_PADRAO = "Engesp@2026"    # Coloque uma senha inicial aqui
+ADMIN_EMAIL = "admin@engesp.com"  
+ADMIN_SENHA_PADRAO = "Engesp@2026"    
 
 # Inicializa o banco de dados
 init_db()
