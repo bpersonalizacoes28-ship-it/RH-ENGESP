@@ -15,7 +15,7 @@ str_lit.set_page_config(
 )
 # Configuração do Administrador Inicial
 ADMIN_EMAIL = "admin@engesp.com"
-ADMIN_SENHA_PADRAO = "Engesp@2026"
+ADMIN_SENHA_PADRAO = "admin123"
 
 # =========================================================
 # ESTILIZAÇÃO CSS
@@ -83,10 +83,6 @@ def get_engine():
 # BANCO DE DADOS - INICIALIZAÇÃO NA NUVEM
 # ---------------------------------------------------------
 def init_db():
-    # Administrador padrão criado automaticamente para evitar erros
-    ADMIN_EMAIL = "admin@engesp.com"
-    ADMIN_SENHA_PADRAO = "admin123"
-    
     engine = get_engine()
     with engine.begin() as conn:
         conn.execute(text("""
