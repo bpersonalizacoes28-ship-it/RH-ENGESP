@@ -53,31 +53,23 @@ ADMIN_EMAIL = "admin@engesp.com"
 ADMIN_SENHA_PADRAO = "admin123"
 
 # ---------------------------------------------------------
-# CONEXÃO DIRETA COM O SUPABASE (POSTGRESQL FORÇANDO PSYCOPG2)
+# CONEXÃO COM TESTE DE LEITURA DO SECRETS
 # ---------------------------------------------------------
 def get_engine():
     try:
-        db_url = str_lit.secrets["connections"]["postgresql"]["url"]
-    except Exception:
-        db_url = str_lit.secrets.get("DATABASE_URL", "")
+        db_url = st.secrets["connections"]["postgresql"]["url"]
+        st.write("DEBUG: Conseguiu ler o link do secrets com sucesso!")
+    except Exception as e:
+        st.error(f"ERRO DE LEITURA DOS SECRETS: O Streamlit não achou o segredo. Detalhe: {e}")
+        db_url = ""
     
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
         
-    # Força o uso explícito do driver psycopg2 para evitar o erro do psycopg moderno
     if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg2://"):
         db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         
     return create_engine(db_url)
-
-def executar_query(query, params=None):
-    engine = get_engine()
-    with engine.connect() as conn:
-        df = pd.read_sql(text(query), conn, params=params or {})
-    return df
-
-def hash_senha(senha):
-    return hashlib.sha256(senha.encode()).hexdigest()
 
 # ---------------------------------------------------------
 # BANCO DE DADOS - INICIALIZAÇÃO NA NUVEM
