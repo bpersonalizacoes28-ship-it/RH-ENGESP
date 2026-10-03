@@ -13,6 +13,9 @@ str_lit.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+# Configuração do Administrador Inicial
+ADMIN_EMAIL = "admin@admin.com"
+ADMIN_SENHA_PADRAO = "123456"
 
 # =========================================================
 # ESTILIZAÇÃO CSS
@@ -182,8 +185,6 @@ ADMIN_EMAIL = "admin@engesp.com"  # Coloque o seu e-mail aqui
 ADMIN_SENHA_PADRAO = "Engesp@2026"    # Coloque uma senha inicial aqui
 
 # Inicializa o banco de dados
-init_db()
-
 init_db()
 
 # ---------------------------------------------------------
