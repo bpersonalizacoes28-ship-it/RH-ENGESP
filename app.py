@@ -83,6 +83,10 @@ def get_engine():
 # BANCO DE DADOS - INICIALIZAÇÃO NA NUVEM
 # ---------------------------------------------------------
 def init_db():
+    # Definimos o e-mail e senha direto aqui dentro para não dar erro
+    ADMIN_EMAIL = "admin@admin.com"
+    ADMIN_SENHA_PADRAO = "123456"
+    
     engine = get_engine()
     with engine.begin() as conn:
         conn.execute(text("""
@@ -92,6 +96,7 @@ def init_db():
                 criado_por TEXT
             )
         """))
+        
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS logs_auditoria (
                 id SERIAL PRIMARY KEY,
