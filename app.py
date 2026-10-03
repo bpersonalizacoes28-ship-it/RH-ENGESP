@@ -3,8 +3,8 @@ import io
 import json
 import random
 import re
-import pandas as pd
 import streamlit as str_lit
+import pandas as pd
 import hashlib
 from sqlalchemy import create_engine, text
 
@@ -58,8 +58,7 @@ ADMIN_SENHA_PADRAO = "admin123"
 # ---------------------------------------------------------
 # CONEXÃO SEGURA COM O SUPABASE
 # ---------------------------------------------------------
-def get_engine():
-    # Tenta ler do formato de conexões do Streamlit ou de uma variável simples
+ddef get_engine():
     try:
         db_url = str_lit.secrets["connections"]["postgresql"]["url"]
     except Exception:
@@ -78,6 +77,15 @@ def get_engine():
         db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         
     return create_engine(db_url)
+
+def executar_query(query, params=None):
+    engine = get_engine()
+    with engine.connect() as conn:
+        df = pd.read_sql(text(query), conn, params=params or {})
+    return df
+
+def hash_senha(senha):
+    return hashlib.sha256(senha.encode()).hexdigest()
     
 # ---------------------------------------------------------
 # BANCO DE DADOS - INICIALIZAÇÃO NA NUVEM
@@ -181,6 +189,12 @@ def init_db():
             ), {"email": ADMIN_EMAIL, "senha": hash_senha(ADMIN_SENHA_PADRAO), "criado": "Sistema"})
 
 init_db()
+
+# ---------------------------------------------------------
+# TELA INICIAL DO APP
+# ---------------------------------------------------------
+str_lit.title("Sistema RH - ENGESP")
+str_lit.success("Banco de dados conectado e inicializado com sucesso! Faça login para continuar.")
 
 # ---------------------------------------------------------
 # FUNÇÕES DE SEGURANÇA E AUDITORIA
