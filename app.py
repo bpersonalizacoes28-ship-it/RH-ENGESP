@@ -58,7 +58,7 @@ ADMIN_SENHA_PADRAO = "admin123"
 # ---------------------------------------------------------
 # CONEXÃO SEGURA COM O SUPABASE
 # ---------------------------------------------------------
-ddef get_engine():
+def get_engine():
     try:
         db_url = str_lit.secrets["connections"]["postgresql"]["url"]
     except Exception:
