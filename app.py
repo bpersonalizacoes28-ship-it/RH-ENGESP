@@ -53,7 +53,7 @@ str_lit.markdown(
 
 CNPJ_PADRAO = "37.608.361/0001-25"
 ADMIN_EMAIL = "admin@engesp.com"
-ADMIN_SENHA_PADRAO = "Engesp@2026"
+ADMIN_SENHA_PADRAO = "admin123"
 
 # ---------------------------------------------------------
 # CONEXÃO SEGURA COM O SUPABASE
