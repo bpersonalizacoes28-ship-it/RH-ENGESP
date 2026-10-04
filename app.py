@@ -719,7 +719,7 @@ else:
                 filial_destino = str_lit.selectbox("🏢 2. Selecione a Filial de Destino:", options=lista_dest)
                 data_transf = str_lit.date_input("Data da Transferência", value=date.today(), format="DD/MM/YYYY")
                 
-                # Novas opções solicitadas antes de confirmar a transferência
+                # Configurações Adicionais para a Transferência
                 str_lit.markdown("### ⚙️ Configurações Adicionais para a Transferência")
                 col_p, col_aj = str_lit.columns(2)
                 with col_p:
@@ -729,7 +729,7 @@ else:
                 
                 valor_ajuda_custo = 0.0
                 if tem_ajuda_custo == "Sim":
-                    valor_ajuda_custo = str_lit.number_input("Valor da Ajuda de Custo (R$):", min_value=0.0, format="R$ %.2f", step=10.0, key="transf_valor_ajuda")
+                    valor_ajuda_custo = str_lit.number_input("Valor da Ajuda de Custo (R$):", min_value=0.0, step=10.0, key="transf_valor_ajuda")
 
                 if str_lit.button("🔄 Efetivar e Salvar Transferência", type="primary"):
                     if not matriculas_selecionadas:
