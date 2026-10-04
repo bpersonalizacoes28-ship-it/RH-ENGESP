@@ -552,11 +552,12 @@ else:
                 except Exception as e:
                     str_lit.error(f"Erro ao salvar alterações: {e}")
 
-    # ---------------------------------------------------------
+   # ---------------------------------------------------------
     # MÓDULO 2: CADASTRO DE FILIAIS
     # ---------------------------------------------------------
     elif menu == "🏢 Cadastro de Filiais":
         str_lit.title("🏢 Cadastro e Gestão de Filiais")
+        
         with str_lit.form("form_nova_filial"):
             str_lit.subheader("Cadastrar Nova Filial")
             nome_f = str_lit.text_input("Nome da Filial / Obra *")
@@ -591,25 +592,67 @@ else:
         else:
             df_f_cad["cnpj"] = df_f_cad["cnpj"].apply(formatar_cnpj)
             str_lit.dataframe(df_f_cad, use_container_width=True)
+            
+            # --- NOVA SEÇÃO: EDITAR FILIAL ---
             str_lit.markdown("---")
-            str_lit.subheader("🗑️ Excluir Filial Cadastrada")
-            str_lit.warning("⚠️ **Atenção:** Ao excluir uma filial, todos os colaboradores e dados vinculados a ela serão removidos.")
+            str_lit.subheader("✏️ Editar Filial Cadastrada")
+            filiais_dict_edit, _ = get_filiais_dict()
+            if filiais_dict_edit:
+                filial_para_editar = str_lit.selectbox("Selecione a Filial que deseja editar:", options=list(filiais_dict_edit.keys()), key="select_edit_filial")
+                f_id_edit = filiais_dict_edit[filial_para_editar]
 
-            filiais_dict_del, _ = get_filiais_dict()
-            if filiais_dict_del:
-                filial_para_deletar = str_lit.selectbox("Selecione a Filial que deseja excluir:", options=list(filiais_dict_del.keys()), key="select_del_filial")
-                if str_lit.button("🗑️ Deletar Filial Selecionada", type="secondary"):
-                    if filial_para_deletar:
-                        f_id_del = filiais_dict_del[filial_para_deletar]
-                        engine = get_engine()
-                        with engine.begin() as conn:
-                            conn.execute(text("DELETE FROM colaboradores WHERE filial_id = :fid"), {"fid": int(f_id_del)})
-                            conn.execute(text("DELETE FROM importacoes_arquivos WHERE filial_id = :fid"), {"fid": int(f_id_del)})
-                            conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_del)})
-                            conn.execute(text("DELETE FROM filiais WHERE id = :fid"), {"fid": int(f_id_del)})
-                        registrar_auditoria("Exclusão de Filial", f"Removeu a filial {filial_para_deletar}")
-                        str_lit.success(f"Filial '{filial_para_deletar}' excluída com sucesso!")
-                        str_lit.rerun()
+                # Busca dados atuais da filial selecionada para preencher o formulário de edição
+                try:
+                    df_dados_atual = executar_query("SELECT nome, cnpj FROM filiais WHERE id = :fid", {"fid": int(f_id_edit)})
+                    nome_atual_db = df_dados_atual.iloc[0]["nome"] if not df_dados_atual.empty else filial_para_editar
+                    cnpj_atual_db = df_dados_atual.iloc[0]["cnpj"] if not df_dados_atual.empty else CNPJ_PADRAO
+                except Exception:
+                    nome_atual_db = filial_para_editar
+                    cnpj_atual_db = CNPJ_PADRAO
+
+                with str_lit.form("form_edita_filial"):
+                    novo_nome_f = str_lit.text_input("Novo Nome da Filial / Obra *", value=nome_atual_db)
+                    novo_cnpj_f = str_lit.text_input("Novo CNPJ da Filial", value=cnpj_atual_db)
+                    btn_salvar_edicao = str_lit.form_submit_button("Salvar Alterações")
+
+                    if btn_salvar_edicao:
+                        if not novo_nome_f:
+                            str_lit.error("O nome da filial não pode ficar vazio.")
+                        else:
+                            try:
+                                engine = get_engine()
+                                with engine.begin() as conn:
+                                    conn.execute(text(
+                                        "UPDATE filiais SET nome = :n, cnpj = :c WHERE id = :fid"
+                                    ), {"n": novo_nome_f, "c": formatar_cnpj(novo_cnpj_f), "fid": int(f_id_edit)})
+                                registrar_auditoria("Edição de Filial", f"Atualizou dados da filial ID {f_id_edit} para '{novo_nome_f}'")
+                                str_lit.success(f"Filial atualizada com sucesso!")
+                                str_lit.rerun()
+                            except Exception:
+                                str_lit.error("Erro ao atualizar filial (verifique se já existe outra com o mesmo nome/CNPJ).")
+
+            # --- SEÇÃO DE EXCLUSÃO RESTRITA AO ADMIN ---
+            usuario_atual = str_lit.session_state.get("usuario_logado", "").strip().lower()
+            if usuario_atual == "admin@engesp.com":
+                str_lit.markdown("---")
+                str_lit.subheader("🗑️ Excluir Filial Cadastrada")
+                str_lit.warning("⚠️ **Atenção:** Ao excluir uma filial, todos os colaboradores e dados vinculados a ela serão removidos.")
+
+                filiais_dict_del, _ = get_filiais_dict()
+                if filiais_dict_del:
+                    filial_para_deletar = str_lit.selectbox("Selecione a Filial que deseja excluir:", options=list(filiais_dict_del.keys()), key="select_del_filial")
+                    if str_lit.button("🗑️ Deletar Filial Selecionada", type="secondary"):
+                        if filial_para_deletar:
+                            f_id_del = filiais_dict_del[filial_para_deletar]
+                            engine = get_engine()
+                            with engine.begin() as conn:
+                                conn.execute(text("DELETE FROM colaboradores WHERE filial_id = :fid"), {"fid": int(f_id_del)})
+                                conn.execute(text("DELETE FROM importacoes_arquivos WHERE filial_id = :fid"), {"fid": int(f_id_del)})
+                                conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_del)})
+                                conn.execute(text("DELETE FROM filiais WHERE id = :fid"), {"fid": int(f_id_del)})
+                            registrar_auditoria("Exclusão de Filial", f"Removeu a filial {filial_para_deletar}")
+                            str_lit.success(f"Filial '{filial_para_deletar}' excluída com sucesso!")
+                            str_lit.rerun()
 
     # ---------------------------------------------------------
     # MÓDULO 3: IMPORTAR COLABORADORES POR FILIAL
