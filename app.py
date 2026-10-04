@@ -471,14 +471,15 @@ else:
     # ---------------------------------------------------------
     # MÓDULO 1: DASHBOARD / CONSULTA
     # ---------------------------------------------------------
-    if menu == "📊 Dashboard / Consulta":
+    elif menu == "📊 Dashboard / Consulta":
         str_lit.title("📊 Painel de Gestão")
         query = """
             SELECT c.id, c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
                    c.tipo_movimentacao as "Tipo", c.subtipo_movimentacao as "Subtipo",
                    c.data_movimentacao as "Data Movimentação", c.tipo_contratacao as "Contratação",
                    f.nome as filial, c.cpf as "CPF", c.rg as "RG", c.data_contratacao as "Data Admissão",
-                   c.observacoes as "Observações", c.status_colaborador as "Status", c.data_demissao as "Data Demissão"
+                   c.observacoes as "Observações", c.status_colaborador as "Status", c.data_demissao as "Data Demissão",
+                   c.he_50 as "HE 50%", c.he_100 as "HE 100%", c.periculosidade as "PERICULOSIDADE", c.ajuda_custo as "AJUDA DE CUSTO (R$)"
             FROM colaboradores c
             LEFT JOIN filiais f ON c.filial_id = f.id
         """
@@ -505,8 +506,51 @@ else:
                     df[col] = df[col].apply(formatar_data_br)
             if "CPF" in df.columns:
                 df["CPF"] = df["CPF"].apply(formatar_cpf)
+
             str_lit.subheader(f"Registros Exibidos ({len(df)})")
-            str_lit.dataframe(df, use_container_width=True)
+            str_lit.info("💡 As colunas **ID**, **Matrícula**, **Empregado** e **Cargo** estão fixas à esquerda. Você pode rolar para o lado e atualizar os campos de HE, Periculosidade e Ajuda de Custo com segurança.")
+
+            # Tabela interativa com colunas congeladas e menus suspensos/inputs seguros
+            df_editado_dash = str_lit.data_editor(
+                df,
+                column_config={
+                    "id": str_lit.column_config.NumberColumn("ID", disabled=True, pinned=True),
+                    "Matrícula": str_lit.column_config.TextColumn("Matrícula", disabled=True, pinned=True),
+                    "Empregado": str_lit.column_config.TextColumn("Empregado", disabled=True, pinned=True),
+                    "Cargo": str_lit.column_config.TextColumn("Cargo", disabled=True, pinned=True),
+                    "HE 50%": str_lit.column_config.NumberColumn("HE 50%", min_value=0.0, step=0.5),
+                    "HE 100%": str_lit.column_config.NumberColumn("HE 100%", min_value=0.0, step=0.5),
+                    "PERICULOSIDADE": str_lit.column_config.SelectboxColumn("PERICULOSIDADE", options=["Sim", "Não"], required=True),
+                    "AJUDA DE CUSTO (R$)": str_lit.column_config.NumberColumn("AJUDA DE CUSTO (R$)", min_value=0.0, step=10.0),
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="editor_dashboard_completo"
+            )
+
+            # Botão para salvar alterações realizadas no painel
+            if str_lit.button("💾 Salvar Alterações do Painel", type="primary"):
+                try:
+                    engine = get_engine()
+                    with engine.begin() as conn:
+                        for _, row in df_editado_dash.iterrows():
+                            conn.execute(text("""
+                                UPDATE colaboradores 
+                                SET he_50 = :he50, he_100 = :he100, 
+                                    periculosidade = :peric, ajuda_custo = :ajuda
+                                WHERE matricula = :mat
+                            """), {
+                                "he50": float(row["HE 50%"]),
+                                "he100": float(row["HE 100%"]),
+                                "peric": str(row["PERICULOSIDADE"]),
+                                "ajuda": float(row["AJUDA DE CUSTO (R$)"]),
+                                "mat": str(row["Matrícula"])
+                            })
+                    registrar_auditoria("Atualização Painel", "Atualizou dados do painel geral.")
+                    str_lit.success("Alterações salvas com sucesso!")
+                    str_lit.rerun()
+                except Exception as e:
+                    str_lit.error(f"Erro ao salvar alterações: {e}")
 
     # ---------------------------------------------------------
     # MÓDULO 2: CADASTRO DE FILIAIS
