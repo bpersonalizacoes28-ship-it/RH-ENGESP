@@ -801,13 +801,14 @@ else:
                     df_para_editar = df_res.drop(columns=["filial_id"]).copy()
 
                     df_editado_colab = str_lit.data_editor(df_para_editar, column_config={
-                        "Demitir?": str_lit.column_config.CheckboxColumn("Demitir?", required=True),
-                        "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
+                        "Demitir?": str_lit.column_config.CheckboxColumn("Demitir?", required=True, pinned=True),
+                        "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True, pinned=True),
+                        "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True, pinned=True),
                         "FILIAL": str_lit.column_config.TextColumn("FILIAL", disabled=True),
                         "PRÓXIMA FOLGA DE CAMPO": str_lit.column_config.TextColumn("PRÓXIMA FOLGA DE CAMPO", disabled=True),
                         "TIPO DE CONTRATAÇÃO": str_lit.column_config.SelectboxColumn("TIPO DE CONTRATAÇÃO", options=["CLT", "PJ"], required=True),
                         "PERICULOSIDADE": str_lit.column_config.SelectboxColumn("PERICULOSIDADE", options=["Sim", "Não"], required=True),
-                        "AJUDA DE CUSTO (R$)": str_lit.column_config.NumberColumn("AJUDA DE CUSTO (R$)", format="R$ %.2f"),
+                        "AJUDA DE CUSTO (R$)": str_lit.column_config.NumberColumn("AJUDA DE CUSTO (R$)", format="R$ %.2f", min_value=0.0, step=10.0),
                         "HE 50%": str_lit.column_config.NumberColumn("HE 50%", disabled=True),
                         "HE 100%": str_lit.column_config.NumberColumn("HE 100%", disabled=True),
                     }, hide_index=True, use_container_width=True)
@@ -885,7 +886,7 @@ else:
                             conn.execute(text("UPDATE colaboradores SET data_demissao = :dt WHERE matricula = :m"), {"dt": parse_data_rigorosa(row["DATA DEMISSÃO"]), "m": row["MATRÍCULA"]})
                     str_lit.success("Datas de demissão salvas!")
                     str_lit.rerun()
-
+                    
     # ---------------------------------------------------------
     # MÓDULO 6: NOVO COLABORADOR / ADMISSÃO
     # ---------------------------------------------------------
