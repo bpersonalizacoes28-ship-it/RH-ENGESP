@@ -1285,22 +1285,41 @@ else:
                         "CHEGOU DA 1° FOLGA": None, 
                         "2° FOLGA": None, 
                         "CHEGOU DA 2° FOLGA": None, 
-                        "3° FOLGA": None
+                        "3° FOLGA": None,
+                        "CHEGOU DA 3° FOLGA": None
                     })
                 df_trabalho = pd.DataFrame(linhas_iniciais)
             else:
-                # Garante que as colunas de intervalo existam caso o arquivo salvo seja antigo
+                # Garante que as colunas existam caso o arquivo salvo seja antigo
                 if "Int. 1°->2°" not in df_trabalho.columns:
                     df_trabalho["Int. 1°->2°"] = 59
                 if "Int. 2°->3°" not in df_trabalho.columns:
                     df_trabalho["Int. 2°->3°"] = 89
+                if "CHEGOU DA 3° FOLGA" not in df_trabalho.columns:
+                    df_trabalho["CHEGOU DA 3° FOLGA"] = None
 
             if df_trabalho.empty:
                 str_lit.info("ℹ️ Nenhum colaborador ativo nesta filial.")
             else:
-                str_lit.info("💡 Agora você pode definir o intervalo de dias (29, 59 ou 89) individualmente para cada colaborador na tabela abaixo.")
+                str_lit.info("💡 Defina os intervalos individualmente na tabela ou utilize as opções em lote abaixo para aplicar a todos os colaboradores de uma vez.")
 
-                if str_lit.button("⚡ Aplicar Fórmulas Automáticas com base nos intervalos da tabela"):
+                # Seção de Ações em Lote para os Intervalos
+                with str_lit.expander("⚡ Configuração em Lote de Intervalos", expanded=False):
+                    col_l1, col_l2, col_l3 = str_lit.columns(3)
+                    with col_l1:
+                        lote_int1 = str_lit.selectbox("Definir Int. 1°->2° para todos:", options=[29, 59, 89], key="lote_i1")
+                    with col_l2:
+                        lote_int2 = str_lit.selectbox("Definir Int. 2°->3° para todos:", options=[29, 59, 89], key="lote_i2")
+                    with col_l3:
+                        str_lit.write("")
+                        str_lit.write("")
+                        if str_lit.button("Aplicar a Todos"):
+                            df_trabalho["Int. 1°->2°"] = lote_int1
+                            df_trabalho["Int. 2°->3°"] = lote_int2
+                            str_lit.success("Intervalos aplicados a todos os colaboradores!")
+                            str_lit.rerun()
+
+                if str_lit.button("⚡ Aplicar Fórmulas Automáticas com base nas datas e intervalos"):
                     for idx, row in df_trabalho.iterrows():
                         try:
                             int_1 = int(row.get("Int. 1°->2°", 59))
@@ -1326,9 +1345,9 @@ else:
                                 df_trabalho.loc[idx, "3° FOLGA"] = (dt2 + timedelta(days=int_2)).strftime("%d/%m/%Y")
                             except Exception:
                                 pass
-                    str_lit.success("Fórmulas aplicadas com base nos intervalos individuais!")
+                    str_lit.success("Fórmulas de datas aplicadas com sucesso!")
 
-                # Exibição do editor com seleção de datas por calendário e selects de intervalo
+                # Exibição do editor com colunas identificadoras congeladas e novas datas
                 df_edit_folga = str_lit.data_editor(df_trabalho, column_config={
                     "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
                     "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
@@ -1340,6 +1359,7 @@ else:
                     "2° FOLGA": str_lit.column_config.DateColumn("2° FOLGA", format="DD/MM/YYYY"),
                     "CHEGOU DA 2° FOLGA": str_lit.column_config.DateColumn("CHEGOU DA 2° FOLGA", format="DD/MM/YYYY"),
                     "3° FOLGA": str_lit.column_config.DateColumn("3° FOLGA", format="DD/MM/YYYY"),
+                    "CHEGOU DA 3° FOLGA": str_lit.column_config.DateColumn("CHEGOU DA 3° FOLGA", format="DD/MM/YYYY"),
                 }, hide_index=True, use_container_width=True)
 
                 c_b1, c_b2, c_b3 = str_lit.columns(3)
@@ -1347,7 +1367,7 @@ else:
                     if str_lit.button("💾 Salvar Folgas", type="primary"):
                         # Padroniza datas para string antes de salvar no JSON para evitar erros de serialização
                         df_para_salvar = df_edit_folga.copy()
-                        for col_dt in ["1° FOLGA", "CHEGOU DA 1° FOLGA", "2° FOLGA", "CHEGOU DA 2° FOLGA", "3° FOLGA"]:
+                        for col_dt in ["1° FOLGA", "CHEGOU DA 1° FOLGA", "2° FOLGA", "CHEGOU DA 2° FOLGA", "3° FOLGA", "CHEGOU DA 3° FOLGA"]:
                             if col_dt in df_para_salvar.columns:
                                 df_para_salvar[col_dt] = pd.to_datetime(df_para_salvar[col_dt], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
 
