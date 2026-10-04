@@ -1521,12 +1521,56 @@ else:
             str_lit.error("⚠️ Acesso não autorizado.")
         else:
             str_lit.title("🛡️ Auditoria e Logs de Atividades")
+            
             try:
                 df_logs = executar_query("SELECT id as 'ID', usuario as 'Usuário', acao as 'Ação', detalhes as 'Detalhes', data_hora as 'Data/Hora' FROM logs_auditoria ORDER BY id DESC")
             except Exception:
                 df_logs = pd.DataFrame()
+                
             if df_logs.empty:
                 str_lit.info("ℹ️ Nenhum log.")
             else:
-                str_lit.metric("Total de Ações", len(df_logs))
-                str_lit.dataframe(df_logs, use_container_width=True)
+                # --- NOVO: BUSCAR FILIAIS CADASTRADAS PARA O FILTRO ---
+                f_map_auditoria, _ = get_filiais_dict()
+                lista_filiais_filtro = ["Todas"] + list(f_map_auditoria.keys()) if f_map_auditoria else ["Todas"]
+                
+                # --- NOVO: ÚLTIMA AÇÃO POR FILIAL ---
+                str_lit.subheader("📌 Última Ação Registrada por Filial")
+                if f_map_auditoria:
+                    ultimas_acoes_data = []
+                    for nome_filial in f_map_auditoria.keys():
+                        # Filtra logs que contêm o nome da filial nos detalhes ou na ação
+                        df_filial_log = df_logs[df_logs["Detalhes"].str.contains(nome_filial, case=False, na=False) | df_logs["Ação"].str.contains(nome_filial, case=False, na=False)]
+                        if not df_filial_log.empty:
+                            ultima = df_filial_log.iloc[0] # Como está ordenado por id DESC, o primeiro é o mais recente
+                            ultimas_acoes_data.append({
+                                "Filial / Obra": nome_filial,
+                                "Última Ação": ultima["Ação"],
+                                "Detalhes": ultima["Detalhes"],
+                                "Data/Hora": ultima["Data/Hora"]
+                            })
+                        else:
+                            ultimas_acoes_data.append({
+                                "Filial / Obra": nome_filial,
+                                "Última Ação": "Nenhuma registrada",
+                                "Detalhes": "-",
+                                "Data/Hora": "-"
+                            })
+                    df_ultimas = pd.DataFrame(ultimas_acoes_data)
+                    str_lit.dataframe(df_ultimas, use_container_width=True)
+
+                str_lit.markdown("---")
+                str_lit.subheader("📜 Histórico Geral de Logs")
+                
+                # --- NOVO: FILTRO POR FILIAL NO HISTÓRICO ---
+                filial_filtro_sel = str_lit.selectbox("🔍 Filtrar Histórico por Filial:", options=lista_filiais_filtro, key="filtro_auditoria_filial")
+                
+                df_logs_exibicao = df_logs.copy()
+                if filial_filtro_sel != "Todas":
+                    df_logs_exibicao = df_logs_exibicao[
+                        df_logs_exibicao["Detalhes"].str.contains(filial_filtro_sel, case=False, na=False) | 
+                        df_logs_exibicao["Ação"].str.contains(filial_filtro_sel, case=False, na=False)
+                    ]
+
+                str_lit.metric("Total de Ações Exibidas", len(df_logs_exibicao))
+                str_lit.dataframe(df_logs_exibicao, use_container_width=True)
