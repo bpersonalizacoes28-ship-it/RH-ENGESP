@@ -1457,15 +1457,18 @@ else:
                     str_lit.download_button(label="📥 Exportar Excel", data=output_f.getvalue(), file_name=f"Folga_Campo_{filial_folga_sel}.xlsx".replace(" ", "_"), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
                 with c_b3:
-                    if str_lit.button("🗑️ Apagar Registros", type="secondary"):
-                        engine = get_engine()
-                        with engine.begin() as conn:
-                            conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_folga)})
-                        if session_key_df in str_lit.session_state:
-                            del str_lit.session_state[session_key_df]
-                        registrar_auditoria("Limpeza Folga", f"Removeu folgas da filial {filial_folga_sel}")
-                        str_lit.success("Apagado com sucesso!")
-                        str_lit.rerun()
+                    # Restringe o botão de apagar registros apenas para o admin@engesp.com
+                    usuario_atual = str_lit.session_state.get("usuario_logado", "").strip().lower()
+                    if usuario_atual == "admin@engesp.com":
+                        if str_lit.button("🗑️ Apagar Registros", type="secondary"):
+                            engine = get_engine()
+                            with engine.begin() as conn:
+                                conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_folga)})
+                            if session_key_df in str_lit.session_state:
+                                del str_lit.session_state[session_key_df]
+                            registrar_auditoria("Limpeza Folga", f"Removeu folgas da filial {filial_folga_sel}")
+                            str_lit.success("Apagado com sucesso!")
+                            str_lit.rerun()
 
     # ---------------------------------------------------------
     # MÓDULO 11: AUDITORIA DE SISTEMA
