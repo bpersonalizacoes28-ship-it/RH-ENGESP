@@ -471,7 +471,7 @@ else:
     # ---------------------------------------------------------
     # MÓDULO 1: DASHBOARD / CONSULTA
     # ---------------------------------------------------------
-    elif menu == "📊 Dashboard / Consulta":
+    if menu == "📊 Dashboard / Consulta":
         str_lit.title("📊 Painel de Gestão")
         query = """
             SELECT c.id, c.matricula as "Matrícula", c.nome as "Empregado", c.funcao as "Cargo", 
