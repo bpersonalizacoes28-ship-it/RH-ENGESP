@@ -718,6 +718,19 @@ else:
             if lista_dest:
                 filial_destino = str_lit.selectbox("🏢 2. Selecione a Filial de Destino:", options=lista_dest)
                 data_transf = str_lit.date_input("Data da Transferência", value=date.today(), format="DD/MM/YYYY")
+                
+                # Novas opções solicitadas antes de confirmar a transferência
+                str_lit.markdown("### ⚙️ Configurações Adicionais para a Transferência")
+                col_p, col_aj = str_lit.columns(2)
+                with col_p:
+                    periculosidade_transf = str_lit.selectbox("Periculosidade:", options=["Não", "Sim"], key="transf_periculosidade")
+                with col_aj:
+                    tem_ajuda_custo = str_lit.selectbox("Tem Ajuda de Custo?", options=["Não", "Sim"], key="transf_tem_ajuda")
+                
+                valor_ajuda_custo = 0.0
+                if tem_ajuda_custo == "Sim":
+                    valor_ajuda_custo = str_lit.number_input("Valor da Ajuda de Custo (R$):", min_value=0.0, format="R$ %.2f", step=10.0, key="transf_valor_ajuda")
+
                 if str_lit.button("🔄 Efetivar e Salvar Transferência", type="primary"):
                     if not matriculas_selecionadas:
                         str_lit.error("Selecione pelo menos um colaborador.")
@@ -728,9 +741,16 @@ else:
                             for mat_t in matriculas_selecionadas:
                                 conn.execute(text("""
                                     UPDATE colaboradores
-                                    SET filial_id = :fid, tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Transferência', data_movimentacao = :dm
+                                    SET filial_id = :fid, tipo_movimentacao = 'Entrada', subtipo_movimentacao = 'Transferência', 
+                                        data_movimentacao = :dm, periculosidade = :p, ajuda_custo = :ac
                                     WHERE matricula = :m
-                                """), {"fid": int(nova_filial_id), "dm": str(data_transf), "m": mat_t})
+                                """), {
+                                    "fid": int(nova_filial_id), 
+                                    "dm": str(data_transf), 
+                                    "p": periculosidade_transf, 
+                                    "ac": float(valor_ajuda_custo),
+                                    "m": mat_t
+                                })
                         registrar_auditoria("Transferencia em Lote", f"{len(matriculas_selecionadas)} transferidos para {filial_destino}")
                         str_lit.success("Transferência realizada com sucesso!")
                         str_lit.rerun()
