@@ -196,7 +196,7 @@ init_db()
 # ---------------------------------------------------------
 # TELA INICIAL DO APP
 # ---------------------------------------------------------
-str_lit.title("Sistema RH - ENGESP")
+str_lit.title("ADMINISTRATIVO - ENGESP")
 str_lit.success("Banco de dados conectado e inicializado com sucesso! Faça login para continuar.")
 
 # ---------------------------------------------------------
