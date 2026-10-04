@@ -58,6 +58,7 @@ ADMIN_SENHA_PADRAO = "admin123"
 # ---------------------------------------------------------
 # CONEXÃO SEGURA COM O SUPABASE
 # ---------------------------------------------------------
+@str_lit.cache_resource
 def get_engine():
     try:
         db_url = str_lit.secrets["connections"]["postgresql"]["url"]
@@ -75,6 +76,8 @@ def get_engine():
         
     if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+psycopg2://"):
         db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+    return create_engine(db_url, pool_pre_ping=True, pool_size=5, max_overflow=10)
         
     return create_engine(db_url)
 
@@ -86,7 +89,7 @@ def executar_query(query, params=None):
 
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
-    
+  
 # ---------------------------------------------------------
 # BANCO DE DADOS - INICIALIZAÇÃO NA NUVEM
 # ---------------------------------------------------------
