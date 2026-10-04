@@ -872,51 +872,37 @@ else:
                     if "CPF" in df_res.columns:
                         df_res["CPF"] = df_res["CPF"].apply(formatar_cpf)
 
-                    # --- BUSCA OS DADOS DE FOLGA DE CAMPO PARA CADA COLABORADOR ---
-                    # Varre a tabela consolidada buscando em qual filial/JSON o colaborador está registrado
-                    # garantindo que os dados o acompanhem caso tenha havido transferência.
+                    # --- OTIMIZAÇÃO: CARREGA OS DADOS DE FOLGAS DE TODAS AS FILIAIS DE UMA SÓ VEZ ---
+                    mapa_folgas = {}
+                    try:
+                        df_todas_folgas = executar_query("SELECT dados_json FROM folga_campo_recesso")
+                        for _, row_f in df_todas_folgas.iterrows():
+                            if row_f["dados_json"]:
+                                df_json_all = pd.read_json(io.StringIO(row_f["dados_json"]))
+                                if "MATRÍCULA" in df_json_all.columns:
+                                    df_json_all["MATRÍCULA"] = df_json_all["MATRÍCULA"].astype(str).str.strip()
+                                    for _, r_json in df_json_all.iterrows():
+                                        mat = r_json["MATRÍCULA"]
+                                        mapa_folgas[mat] = {
+                                            "f1": str(r_json.get("CHEGOU DA 1° FOLGA", "-")),
+                                            "f2": str(r_json.get("CHEGOU DA 2° FOLGA", "-")),
+                                            "f3": str(r_json.get("CHEGOU DA 3° FOLGA", "-"))
+                                        }
+                    except Exception:
+                        pass
+
                     chegou_f1_list = []
                     chegou_f2_list = []
                     chegou_f3_list = []
 
                     for _, r in df_res.iterrows():
                         mat_busca = str(r["MATRÍCULA"]).strip()
-                        fid_colab = int(r["filial_id"])
-                        
-                        c_f1, c_f2, c_f3 = "-", "-", "-"
-                        
-                        # Tenta buscar primeiramente na filial atual do colaborador
-                        try:
-                            df_folga_db = executar_query("SELECT dados_json FROM folga_campo_recesso WHERE filial_id = :fid", {"fid": fid_colab})
-                            if not df_folga_db.empty and df_folga_db.iloc[0]["dados_json"]:
-                                df_json_f = pd.read_json(io.StringIO(df_folga_db.iloc[0]["dados_json"]))
-                                df_json_f["MATRÍCULA"] = df_json_f["MATRÍCULA"].astype(str).str.strip()
-                                match_colab = df_json_f[df_json_f["MATRÍCULA"] == mat_busca]
-                                if not match_colab.empty:
-                                    c_f1 = str(match_colab.iloc[0].get("CHEGOU DA 1° FOLGA", "-"))
-                                    c_f2 = str(match_colab.iloc[0].get("CHEGOU DA 2° FOLGA", "-"))
-                                    c_f3 = str(match_colab.iloc[0].get("CHEGOU DA 3° FOLGA", "-"))
-                        except Exception:
-                            pass
-                        
-                        # Se não achou na filial atual (ex: recém transferido ou JSON desatualizado), varre todas as filiais
-                        if c_f1 in ["-", "", "nan", "None"]:
-                            try:
-                                df_todas_folgas = executar_query("SELECT dados_json FROM folga_campo_recesso")
-                                for _, row_f in df_todas_folgas.iterrows():
-                                    if row_f["dados_json"]:
-                                        df_json_all = pd.read_json(io.StringIO(row_f["dados_json"]))
-                                        df_json_all["MATRÍCULA"] = df_json_all["MATRÍCULA"].astype(str).str.strip()
-                                        match_all = df_json_all[df_json_all["MATRÍCULA"] == mat_busca]
-                                        if not match_all.empty:
-                                            val_1 = str(match_all.iloc[0].get("CHEGOU DA 1° FOLGA", "-"))
-                                            val_2 = str(match_all.iloc[0].get("CHEGOU DA 2° FOLGA", "-"))
-                                            val_3 = str(match_all.iloc[0].get("CHEGOU DA 3° FOLGA", "-"))
-                                            if val_1 not in ["-", "", "nan", "None"]:
-                                                c_f1, c_f2, c_f3 = val_1, val_2, val_3
-                                                break
-                            except Exception:
-                                pass
+                        if mat_busca in mapa_folgas:
+                            c_f1 = mapa_folgas[mat_busca]["f1"]
+                            c_f2 = mapa_folgas[mat_busca]["f2"]
+                            c_f3 = mapa_folgas[mat_busca]["f3"]
+                        else:
+                            c_f1, c_f2, c_f3 = "-", "-", "-"
 
                         chegou_f1_list.append("" if c_f1 in ["-", "nan", "None"] else c_f1)
                         chegou_f2_list.append("" if c_f2 in ["-", "nan", "None"] else c_f2)
