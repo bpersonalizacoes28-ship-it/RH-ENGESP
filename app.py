@@ -1276,51 +1276,82 @@ else:
                 linhas_iniciais = []
                 for _, rc in df_colabs_filial.iterrows():
                     linhas_iniciais.append({
-                        "MATRÍCULA": str(rc["matricula"]), "NOME COMPLETO": rc["nome"], "OBRA": filial_folga_sel,
-                        "1° FOLGA": "", "CHEGOU DA 1° FOLGA": "", "2° FOLGA": "", "CHEGOU DA 2° FOLGA": "", "3° FOLGA": ""
+                        "MATRÍCULA": str(rc["matricula"]), 
+                        "NOME COMPLETO": rc["nome"], 
+                        "OBRA": filial_folga_sel,
+                        "Int. 1°->2°": 59, 
+                        "Int. 2°->3°": 89,
+                        "1° FOLGA": None, 
+                        "CHEGOU DA 1° FOLGA": None, 
+                        "2° FOLGA": None, 
+                        "CHEGOU DA 2° FOLGA": None, 
+                        "3° FOLGA": None
                     })
                 df_trabalho = pd.DataFrame(linhas_iniciais)
+            else:
+                # Garante que as colunas de intervalo existam caso o arquivo salvo seja antigo
+                if "Int. 1°->2°" not in df_trabalho.columns:
+                    df_trabalho["Int. 1°->2°"] = 59
+                if "Int. 2°->3°" not in df_trabalho.columns:
+                    df_trabalho["Int. 2°->3°"] = 89
 
             if df_trabalho.empty:
                 str_lit.info("ℹ️ Nenhum colaborador ativo nesta filial.")
             else:
-                c_op1, c_op2 = str_lit.columns(2)
-                dias_intervalo_1 = c_op1.selectbox("Intervalo 1ª para 2ª (dias):", options=[29, 59, 89], index=1)
-                dias_intervalo_2 = c_op2.selectbox("Intervalo 2ª para 3ª (dias):", options=[29, 59, 89], index=2)
+                str_lit.info("💡 Agora você pode definir o intervalo de dias (29, 59 ou 89) individualmente para cada colaborador na tabela abaixo.")
 
-                if str_lit.button("⚡ Aplicar Fórmulas Automáticas"):
+                if str_lit.button("⚡ Aplicar Fórmulas Automáticas com base nos intervalos da tabela"):
                     for idx, row in df_trabalho.iterrows():
+                        try:
+                            int_1 = int(row.get("Int. 1°->2°", 59))
+                        except:
+                            int_1 = 59
+                        try:
+                            int_2 = int(row.get("Int. 2°->3°", 89))
+                        except:
+                            int_2 = 89
+
                         f1_str = str(row.get("1° FOLGA", "")).strip()
                         if f1_str and f1_str not in ["None", "nan", "-"]:
                             try:
                                 dt1 = datetime.strptime(parse_data_rigorosa(f1_str), "%Y-%m-%d").date()
-                                df_trabalho.loc[idx, "2° FOLGA"] = (dt1 + timedelta(days=dias_intervalo_1)).strftime("%d/%m/%Y")
+                                df_trabalho.loc[idx, "2° FOLGA"] = (dt1 + timedelta(days=int_1)).strftime("%d/%m/%Y")
                             except Exception:
                                 pass
+
                         f2_str = str(row.get("2° FOLGA", "")).strip()
                         if f2_str and f2_str not in ["None", "nan", "-"]:
                             try:
                                 dt2 = datetime.strptime(parse_data_rigorosa(f2_str), "%Y-%m-%d").date()
-                                df_trabalho.loc[idx, "3° FOLGA"] = (dt2 + timedelta(days=dias_intervalo_2)).strftime("%d/%m/%Y")
+                                df_trabalho.loc[idx, "3° FOLGA"] = (dt2 + timedelta(days=int_2)).strftime("%d/%m/%Y")
                             except Exception:
                                 pass
-                    str_lit.success("Fórmulas aplicadas!")
+                    str_lit.success("Fórmulas aplicadas com base nos intervalos individuais!")
 
+                # Exibição do editor com seleção de datas por calendário e selects de intervalo
                 df_edit_folga = str_lit.data_editor(df_trabalho, column_config={
                     "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
                     "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
                     "OBRA": str_lit.column_config.TextColumn("OBRA", disabled=True),
-                    "1° FOLGA": str_lit.column_config.TextColumn("1° FOLGA (DD/MM/AAAA)"),
-                    "CHEGOU DA 1° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 1° FOLGA (DD/MM/AAAA)"),
-                    "2° FOLGA": str_lit.column_config.TextColumn("2° FOLGA (DD/MM/AAAA)"),
-                    "CHEGOU DA 2° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 2° FOLGA (DD/MM/AAAA)"),
-                    "3° FOLGA": str_lit.column_config.TextColumn("3° FOLGA (DD/MM/AAAA)"),
+                    "Int. 1°->2°": str_lit.column_config.SelectboxColumn("Int. 1°->2°", options=[29, 59, 89], required=True),
+                    "Int. 2°->3°": str_lit.column_config.SelectboxColumn("Int. 2°->3°", options=[29, 59, 89], required=True),
+                    "1° FOLGA": str_lit.column_config.DateColumn("1° FOLGA", format="DD/MM/YYYY"),
+                    "CHEGOU DA 1° FOLGA": str_lit.column_config.DateColumn("CHEGOU DA 1° FOLGA", format="DD/MM/YYYY"),
+                    "2° FOLGA": str_lit.column_config.DateColumn("2° FOLGA", format="DD/MM/YYYY"),
+                    "CHEGOU DA 2° FOLGA": str_lit.column_config.DateColumn("CHEGOU DA 2° FOLGA", format="DD/MM/YYYY"),
+                    "3° FOLGA": str_lit.column_config.DateColumn("3° FOLGA", format="DD/MM/YYYY"),
                 }, hide_index=True, use_container_width=True)
 
                 c_b1, c_b2, c_b3 = str_lit.columns(3)
                 with c_b1:
                     if str_lit.button("💾 Salvar Folgas", type="primary"):
-                        json_str_folga = df_edit_folga.to_json(orient="records", force_ascii=False)
+                        # Padroniza datas para string antes de salvar no JSON para evitar erros de serialização
+                        df_para_salvar = df_edit_folga.copy()
+                        for col_dt in ["1° FOLGA", "CHEGOU DA 1° FOLGA", "2° FOLGA", "CHEGOU DA 2° FOLGA", "3° FOLGA"]:
+                            if col_dt in df_para_salvar.columns:
+                                df_para_salvar[col_dt] = pd.to_datetime(df_para_salvar[col_dt], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
+
+                        json_str_folga = df_para_salvar.to_json(orient="records", force_ascii=False)
                         engine = get_engine()
                         with engine.begin() as conn:
                             conn.execute(text("""
