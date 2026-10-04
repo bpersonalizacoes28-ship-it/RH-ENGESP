@@ -1313,7 +1313,6 @@ else:
             filial_folga_sel = str_lit.selectbox("🏢 Selecione a Filial / Obra:", options=list(f_map_folga.keys()), key="sel_filial_folga")
             f_id_folga = f_map_folga[filial_folga_sel]
 
-            # Chave de controle de sessão para garantir que a mudança em lote reflita imediatamente no editor
             session_key_df = f"df_folga_{f_id_folga}"
 
             try:
@@ -1321,7 +1320,6 @@ else:
             except Exception:
                 df_f_db = pd.DataFrame()
 
-            # Inicializa ou recupera do banco/sessão
             if session_key_df not in str_lit.session_state:
                 df_trabalho = pd.DataFrame()
                 if not df_f_db.empty and df_f_db.iloc[0]["dados_json"]:
@@ -1353,7 +1351,6 @@ else:
                         })
                     df_trabalho = pd.DataFrame(linhas_iniciais)
                 else:
-                    # Garante que todas as colunas necessárias existam
                     if "Int. 1°->2°" not in df_trabalho.columns:
                         df_trabalho["Int. 1°->2°"] = 59
                     if "Int. 2°->3°" not in df_trabalho.columns:
@@ -1370,7 +1367,6 @@ else:
             else:
                 str_lit.info("💡 Você pode configurar os intervalos em lote para todos abaixo, mas ainda é possível alterar o intervalo individualmente de qualquer colaborador diretamente na tabela.")
 
-                # Seção de Configuração em Lote (Aplicar a Todos) com funcionamento imediato via session_state
                 with str_lit.expander("⚡ Configuração em Lote de Intervalos para Todos", expanded=True):
                     col_l1, col_l2, col_l3 = str_lit.columns(3)
                     with col_l1:
@@ -1417,7 +1413,12 @@ else:
                     str_lit.success("Fórmulas de datas aplicadas com sucesso!")
                     str_lit.rerun()
 
-                # Exibição do editor (Matrícula, Nome e Obra congelados/travados, colunas de intervalo e datas abertas para edição individual)
+                # CORREÇÃO CRUCIAL: Converte todas as colunas de data para o formato datetime.date antes do editor
+                cols_datas = ["1° FOLGA", "CHEGOU DA 1° FOLGA", "2° FOLGA", "CHEGOU DA 2° FOLGA", "3° FOLGA", "CHEGOU DA 3° FOLGA"]
+                for col_d in cols_datas:
+                    if col_d in df_trabalho.columns:
+                        df_trabalho[col_d] = pd.to_datetime(df_trabalho[col_d], errors='coerce').dt.date
+
                 df_edit_folga = str_lit.data_editor(df_trabalho, column_config={
                     "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
                     "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
@@ -1432,15 +1433,13 @@ else:
                     "CHEGOU DA 3° FOLGA": str_lit.column_config.DateColumn("CHEGOU DA 3° FOLGA", format="DD/MM/YYYY"),
                 }, hide_index=True, use_container_width=True)
 
-                # Atualiza o session_state com as edições manuais feitas pelo usuário na tabela
                 str_lit.session_state[session_key_df] = df_edit_folga
 
                 c_b1, c_b2, c_b3 = str_lit.columns(3)
                 with c_b1:
                     if str_lit.button("💾 Salvar Folgas", type="primary"):
-                        # Padroniza datas para string antes de salvar no JSON para evitar erros de serialização
                         df_para_salvar = df_edit_folga.copy()
-                        for col_dt in ["1° FOLGA", "CHEGOU DA 1° FOLGA", "2° FOLGA", "CHEGOU DA 2° FOLGA", "3° FOLGA", "CHEGOU DA 3° FOLGA"]:
+                        for col_dt in cols_datas:
                             if col_dt in df_para_salvar.columns:
                                 df_para_salvar[col_dt] = pd.to_datetime(df_para_salvar[col_dt], errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
 
@@ -1464,7 +1463,7 @@ else:
                     str_lit.download_button(label="📥 Exportar Excel", data=output_f.getvalue(), file_name=f"Folga_Campo_{filial_folga_sel}.xlsx".replace(" ", "_"), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
                 with c_b3:
-                    if str_lit.button("🗑️️ Apagar Registros", type="secondary"):
+                    if str_lit.button("🗑️ Apagar Registros", type="secondary"):
                         engine = get_engine()
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_folga)})
