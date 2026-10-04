@@ -812,7 +812,7 @@ else:
                         str_lit.success("Transferência realizada com sucesso!")
                         str_lit.rerun()
 
-   # ---------------------------------------------------------
+  # ---------------------------------------------------------
     # MÓDULO 5: COLABORADORES
     # ---------------------------------------------------------
     elif menu == "👥 Colaboradores":
@@ -922,12 +922,9 @@ else:
                         chegou_f2_list.append("" if c_f2 in ["-", "nan", "None"] else c_f2)
                         chegou_f3_list.append("" if c_f3 in ["-", "nan", "None"] else c_f3)
 
-                    proximas_folgas = [calcular_ultima_folga_colaborador(r["filial_id"], r["MATRÍCULA"]) for _, r in df_res.iterrows()]
-                    
-                    df_res.insert(3, "PRÓXIMA FOLGA DE CAMPO", proximas_folgas)
-                    df_res.insert(4, "CHEGOU DA 1° FOLGA", chegou_f1_list)
-                    df_res.insert(5, "CHEGOU DA 2° FOLGA", chegou_f2_list)
-                    df_res.insert(6, "CHEGOU DA 3° FOLGA", chegou_f3_list)
+                    df_res.insert(3, "CHEGOU DA 1° FOLGA", chegou_f1_list)
+                    df_res.insert(4, "CHEGOU DA 2° FOLGA", chegou_f2_list)
+                    df_res.insert(5, "CHEGOU DA 3° FOLGA", chegou_f3_list)
                     df_res.insert(0, "Demitir?", False)
                     
                     df_para_editar = df_res.drop(columns=["filial_id"]).copy()
@@ -937,7 +934,6 @@ else:
                         "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True, pinned=True),
                         "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True, pinned=True),
                         "FILIAL": str_lit.column_config.TextColumn("FILIAL", disabled=True),
-                        "PRÓXIMA FOLGA DE CAMPO": str_lit.column_config.TextColumn("PRÓXIMA FOLGA DE CAMPO", disabled=True),
                         "CHEGOU DA 1° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 1° FOLGA", disabled=True),
                         "CHEGOU DA 2° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 2° FOLGA", disabled=True),
                         "CHEGOU DA 3° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 3° FOLGA", disabled=True),
