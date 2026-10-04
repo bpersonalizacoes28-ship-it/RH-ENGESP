@@ -812,7 +812,7 @@ else:
                         str_lit.success("Transferência realizada com sucesso!")
                         str_lit.rerun()
 
-    # ---------------------------------------------------------
+   # ---------------------------------------------------------
     # MÓDULO 5: COLABORADORES
     # ---------------------------------------------------------
     elif menu == "👥 Colaboradores":
@@ -872,9 +872,64 @@ else:
                     if "CPF" in df_res.columns:
                         df_res["CPF"] = df_res["CPF"].apply(formatar_cpf)
 
+                    # --- BUSCA OS DADOS DE FOLGA DE CAMPO PARA CADA COLABORADOR ---
+                    # Varre a tabela consolidada buscando em qual filial/JSON o colaborador está registrado
+                    # garantindo que os dados o acompanhem caso tenha havido transferência.
+                    chegou_f1_list = []
+                    chegou_f2_list = []
+                    chegou_f3_list = []
+
+                    for _, r in df_res.iterrows():
+                        mat_busca = str(r["MATRÍCULA"]).strip()
+                        fid_colab = int(r["filial_id"])
+                        
+                        c_f1, c_f2, c_f3 = "-", "-", "-"
+                        
+                        # Tenta buscar primeiramente na filial atual do colaborador
+                        try:
+                            df_folga_db = executar_query("SELECT dados_json FROM folga_campo_recesso WHERE filial_id = :fid", {"fid": fid_colab})
+                            if not df_folga_db.empty and df_folga_db.iloc[0]["dados_json"]:
+                                df_json_f = pd.read_json(io.StringIO(df_folga_db.iloc[0]["dados_json"]))
+                                df_json_f["MATRÍCULA"] = df_json_f["MATRÍCULA"].astype(str).str.strip()
+                                match_colab = df_json_f[df_json_f["MATRÍCULA"] == mat_busca]
+                                if not match_colab.empty:
+                                    c_f1 = str(match_colab.iloc[0].get("CHEGOU DA 1° FOLGA", "-"))
+                                    c_f2 = str(match_colab.iloc[0].get("CHEGOU DA 2° FOLGA", "-"))
+                                    c_f3 = str(match_colab.iloc[0].get("CHEGOU DA 3° FOLGA", "-"))
+                        except Exception:
+                            pass
+                        
+                        # Se não achou na filial atual (ex: recém transferido ou JSON desatualizado), varre todas as filiais
+                        if c_f1 in ["-", "", "nan", "None"]:
+                            try:
+                                df_todas_folgas = executar_query("SELECT dados_json FROM folga_campo_recesso")
+                                for _, row_f in df_todas_folgas.iterrows():
+                                    if row_f["dados_json"]:
+                                        df_json_all = pd.read_json(io.StringIO(row_f["dados_json"]))
+                                        df_json_all["MATRÍCULA"] = df_json_all["MATRÍCULA"].astype(str).str.strip()
+                                        match_all = df_json_all[df_json_all["MATRÍCULA"] == mat_busca]
+                                        if not match_all.empty:
+                                            val_1 = str(match_all.iloc[0].get("CHEGOU DA 1° FOLGA", "-"))
+                                            val_2 = str(match_all.iloc[0].get("CHEGOU DA 2° FOLGA", "-"))
+                                            val_3 = str(match_all.iloc[0].get("CHEGOU DA 3° FOLGA", "-"))
+                                            if val_1 not in ["-", "", "nan", "None"]:
+                                                c_f1, c_f2, c_f3 = val_1, val_2, val_3
+                                                break
+                            except Exception:
+                                pass
+
+                        chegou_f1_list.append("" if c_f1 in ["-", "nan", "None"] else c_f1)
+                        chegou_f2_list.append("" if c_f2 in ["-", "nan", "None"] else c_f2)
+                        chegou_f3_list.append("" if c_f3 in ["-", "nan", "None"] else c_f3)
+
                     proximas_folgas = [calcular_ultima_folga_colaborador(r["filial_id"], r["MATRÍCULA"]) for _, r in df_res.iterrows()]
+                    
                     df_res.insert(3, "PRÓXIMA FOLGA DE CAMPO", proximas_folgas)
+                    df_res.insert(4, "CHEGOU DA 1° FOLGA", chegou_f1_list)
+                    df_res.insert(5, "CHEGOU DA 2° FOLGA", chegou_f2_list)
+                    df_res.insert(6, "CHEGOU DA 3° FOLGA", chegou_f3_list)
                     df_res.insert(0, "Demitir?", False)
+                    
                     df_para_editar = df_res.drop(columns=["filial_id"]).copy()
 
                     df_editado_colab = str_lit.data_editor(df_para_editar, column_config={
@@ -883,6 +938,9 @@ else:
                         "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True, pinned=True),
                         "FILIAL": str_lit.column_config.TextColumn("FILIAL", disabled=True),
                         "PRÓXIMA FOLGA DE CAMPO": str_lit.column_config.TextColumn("PRÓXIMA FOLGA DE CAMPO", disabled=True),
+                        "CHEGOU DA 1° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 1° FOLGA", disabled=True),
+                        "CHEGOU DA 2° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 2° FOLGA", disabled=True),
+                        "CHEGOU DA 3° FOLGA": str_lit.column_config.TextColumn("CHEGOU DA 3° FOLGA", disabled=True),
                         "TIPO DE CONTRATAÇÃO": str_lit.column_config.SelectboxColumn("TIPO DE CONTRATAÇÃO", options=["CLT", "PJ"], required=True),
                         "PERICULOSIDADE": str_lit.column_config.SelectboxColumn("PERICULOSIDADE", options=["Sim", "Não"], required=True),
                         "AJUDA DE CUSTO (R$)": str_lit.column_config.NumberColumn("AJUDA DE CUSTO (R$)", format="R$ %.2f", min_value=0.0, step=10.0),
