@@ -872,6 +872,18 @@ else:
                     if "CPF" in df_res.columns:
                         df_res["CPF"] = df_res["CPF"].apply(formatar_cpf)
 
+                    # --- ATUALIZAÇÃO FORÇADA DA FILIAL DE ORIGEM NAS OBSERVAÇÕES ---
+                    for idx, r in df_res.iterrows():
+                        tipo_mov = str(r["TIPO"]).strip().lower()
+                        sub_mov = str(r["SUBTIPO"]).strip()
+                        
+                        # Se for movimentação de transferência, sempre substitui/atualiza a observação
+                        if "transferência" in tipo_mov or "transferencia" in tipo_mov:
+                            if sub_mov and sub_mov not in ["nan", "None", "-"]:
+                                df_res.at[idx, "OBSERVAÇÕES"] = f"Transferido da filial {sub_mov}"
+                            else:
+                                df_res.at[idx, "OBSERVAÇÕES"] = "Transferido de outra filial"
+
                     # --- OTIMIZAÇÃO: CARREGA OS DADOS DE FOLGAS DE TODAS AS FILIAIS DE UMA SÓ VEZ ---
                     mapa_folgas = {}
                     try:
