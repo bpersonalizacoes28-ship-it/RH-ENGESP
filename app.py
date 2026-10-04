@@ -1255,72 +1255,82 @@ else:
             filial_folga_sel = str_lit.selectbox("🏢 Selecione a Filial / Obra:", options=list(f_map_folga.keys()), key="sel_filial_folga")
             f_id_folga = f_map_folga[filial_folga_sel]
 
+            # Chave de controle de sessão para garantir que a mudança em lote reflita imediatamente no editor
+            session_key_df = f"df_folga_{f_id_folga}"
+
             try:
                 df_f_db = executar_query("SELECT dados_json FROM folga_campo_recesso WHERE filial_id = :fid", {"fid": int(f_id_folga)})
             except Exception:
                 df_f_db = pd.DataFrame()
 
-            df_trabalho = pd.DataFrame()
-            if not df_f_db.empty and df_f_db.iloc[0]["dados_json"]:
-                try:
-                    df_trabalho = pd.read_json(io.StringIO(df_f_db.iloc[0]["dados_json"]))
-                except Exception:
-                    pass
+            # Inicializa ou recupera do banco/sessão
+            if session_key_df not in str_lit.session_state:
+                df_trabalho = pd.DataFrame()
+                if not df_f_db.empty and df_f_db.iloc[0]["dados_json"]:
+                    try:
+                        df_trabalho = pd.read_json(io.StringIO(df_f_db.iloc[0]["dados_json"]))
+                    except Exception:
+                        pass
 
-            if df_trabalho.empty:
-                try:
-                    df_colabs_filial = executar_query("SELECT matricula, nome FROM colaboradores WHERE filial_id = :fid AND status_colaborador = 'Ativo'", {"fid": int(f_id_folga)})
-                except Exception:
-                    df_colabs_filial = pd.DataFrame()
+                if df_trabalho.empty:
+                    try:
+                        df_colabs_filial = executar_query("SELECT matricula, nome FROM colaboradores WHERE filial_id = :fid AND status_colaborador = 'Ativo'", {"fid": int(f_id_folga)})
+                    except Exception:
+                        df_colabs_filial = pd.DataFrame()
 
-                linhas_iniciais = []
-                for _, rc in df_colabs_filial.iterrows():
-                    linhas_iniciais.append({
-                        "MATRÍCULA": str(rc["matricula"]), 
-                        "NOME COMPLETO": rc["nome"], 
-                        "OBRA": filial_folga_sel,
-                        "Int. 1°->2°": 59, 
-                        "Int. 2°->3°": 89,
-                        "1° FOLGA": None, 
-                        "CHEGOU DA 1° FOLGA": None, 
-                        "2° FOLGA": None, 
-                        "CHEGOU DA 2° FOLGA": None, 
-                        "3° FOLGA": None,
-                        "CHEGOU DA 3° FOLGA": None
-                    })
-                df_trabalho = pd.DataFrame(linhas_iniciais)
-            else:
-                # Garante que as colunas existam caso o arquivo salvo seja antigo
-                if "Int. 1°->2°" not in df_trabalho.columns:
-                    df_trabalho["Int. 1°->2°"] = 59
-                if "Int. 2°->3°" not in df_trabalho.columns:
-                    df_trabalho["Int. 2°->3°"] = 89
-                if "CHEGOU DA 3° FOLGA" not in df_trabalho.columns:
-                    df_trabalho["CHEGOU DA 3° FOLGA"] = None
+                    linhas_iniciais = []
+                    for _, rc in df_colabs_filial.iterrows():
+                        linhas_iniciais.append({
+                            "MATRÍCULA": str(rc["matricula"]), 
+                            "NOME COMPLETO": rc["nome"], 
+                            "OBRA": filial_folga_sel,
+                            "Int. 1°->2°": 59, 
+                            "Int. 2°->3°": 89,
+                            "1° FOLGA": None, 
+                            "CHEGOU DA 1° FOLGA": None, 
+                            "2° FOLGA": None, 
+                            "CHEGOU DA 2° FOLGA": None, 
+                            "3° FOLGA": None,
+                            "CHEGOU DA 3° FOLGA": None
+                        })
+                    df_trabalho = pd.DataFrame(linhas_iniciais)
+                else:
+                    # Garante que todas as colunas necessárias existam
+                    if "Int. 1°->2°" not in df_trabalho.columns:
+                        df_trabalho["Int. 1°->2°"] = 59
+                    if "Int. 2°->3°" not in df_trabalho.columns:
+                        df_trabalho["Int. 2°->3°"] = 89
+                    if "CHEGOU DA 3° FOLGA" not in df_trabalho.columns:
+                        df_trabalho["CHEGOU DA 3° FOLGA"] = None
+
+                str_lit.session_state[session_key_df] = df_trabalho
+
+            df_trabalho = str_lit.session_state[session_key_df]
 
             if df_trabalho.empty:
                 str_lit.info("ℹ️ Nenhum colaborador ativo nesta filial.")
             else:
-                str_lit.info("💡 Defina os intervalos individualmente na tabela ou utilize as opções em lote abaixo para aplicar a todos os colaboradores de uma vez.")
+                str_lit.info("💡 Você pode configurar os intervalos em lote para todos abaixo, mas ainda é possível alterar o intervalo individualmente de qualquer colaborador diretamente na tabela.")
 
-                # Seção de Ações em Lote para os Intervalos
-                with str_lit.expander("⚡ Configuração em Lote de Intervalos", expanded=False):
+                # Seção de Configuração em Lote (Aplicar a Todos) com funcionamento imediato via session_state
+                with str_lit.expander("⚡ Configuração em Lote de Intervalos para Todos", expanded=True):
                     col_l1, col_l2, col_l3 = str_lit.columns(3)
                     with col_l1:
-                        lote_int1 = str_lit.selectbox("Definir Int. 1°->2° para todos:", options=[29, 59, 89], key="lote_i1")
+                        lote_int1 = str_lit.selectbox("Definir Int. 1°->2° para TODOS:", options=[29, 59, 89], key="lote_i1")
                     with col_l2:
-                        lote_int2 = str_lit.selectbox("Definir Int. 2°->3° para todos:", options=[29, 59, 89], key="lote_i2")
+                        lote_int2 = str_lit.selectbox("Definir Int. 2°->3° para TODOS:", options=[29, 59, 89], key="lote_i2")
                     with col_l3:
                         str_lit.write("")
                         str_lit.write("")
-                        if str_lit.button("Aplicar a Todos"):
-                            df_trabalho["Int. 1°->2°"] = lote_int1
-                            df_trabalho["Int. 2°->3°"] = lote_int2
+                        if str_lit.button("Aplicar Intervalos em Massa", type="secondary"):
+                            str_lit.session_state[session_key_df]["Int. 1°->2°"] = lote_int1
+                            str_lit.session_state[session_key_df]["Int. 2°->3°"] = lote_int2
                             str_lit.success("Intervalos aplicados a todos os colaboradores!")
                             str_lit.rerun()
 
                 if str_lit.button("⚡ Aplicar Fórmulas Automáticas com base nas datas e intervalos"):
-                    for idx, row in df_trabalho.iterrows():
+                    df_atual = str_lit.session_state[session_key_df]
+                    for idx, row in df_atual.iterrows():
                         try:
                             int_1 = int(row.get("Int. 1°->2°", 59))
                         except:
@@ -1334,7 +1344,7 @@ else:
                         if f1_str and f1_str not in ["None", "nan", "-"]:
                             try:
                                 dt1 = datetime.strptime(parse_data_rigorosa(f1_str), "%Y-%m-%d").date()
-                                df_trabalho.loc[idx, "2° FOLGA"] = (dt1 + timedelta(days=int_1)).strftime("%d/%m/%Y")
+                                df_atual.loc[idx, "2° FOLGA"] = (dt1 + timedelta(days=int_1)).strftime("%d/%m/%Y")
                             except Exception:
                                 pass
 
@@ -1342,12 +1352,14 @@ else:
                         if f2_str and f2_str not in ["None", "nan", "-"]:
                             try:
                                 dt2 = datetime.strptime(parse_data_rigorosa(f2_str), "%Y-%m-%d").date()
-                                df_trabalho.loc[idx, "3° FOLGA"] = (dt2 + timedelta(days=int_2)).strftime("%d/%m/%Y")
+                                df_atual.loc[idx, "3° FOLGA"] = (dt2 + timedelta(days=int_2)).strftime("%d/%m/%Y")
                             except Exception:
                                 pass
+                    str_lit.session_state[session_key_df] = df_atual
                     str_lit.success("Fórmulas de datas aplicadas com sucesso!")
+                    str_lit.rerun()
 
-                # Exibição do editor com colunas identificadoras congeladas e novas datas
+                # Exibição do editor (Matrícula, Nome e Obra congelados/travados, colunas de intervalo e datas abertas para edição individual)
                 df_edit_folga = str_lit.data_editor(df_trabalho, column_config={
                     "MATRÍCULA": str_lit.column_config.TextColumn("MATRÍCULA", disabled=True),
                     "NOME COMPLETO": str_lit.column_config.TextColumn("NOME COMPLETO", disabled=True),
@@ -1361,6 +1373,9 @@ else:
                     "3° FOLGA": str_lit.column_config.DateColumn("3° FOLGA", format="DD/MM/YYYY"),
                     "CHEGOU DA 3° FOLGA": str_lit.column_config.DateColumn("CHEGOU DA 3° FOLGA", format="DD/MM/YYYY"),
                 }, hide_index=True, use_container_width=True)
+
+                # Atualiza o session_state com as edições manuais feitas pelo usuário na tabela
+                str_lit.session_state[session_key_df] = df_edit_folga
 
                 c_b1, c_b2, c_b3 = str_lit.columns(3)
                 with c_b1:
@@ -1391,10 +1406,12 @@ else:
                     str_lit.download_button(label="📥 Exportar Excel", data=output_f.getvalue(), file_name=f"Folga_Campo_{filial_folga_sel}.xlsx".replace(" ", "_"), mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
                 with c_b3:
-                    if str_lit.button("🗑️ Apagar Registros", type="secondary"):
+                    if str_lit.button("🗑️️ Apagar Registros", type="secondary"):
                         engine = get_engine()
                         with engine.begin() as conn:
                             conn.execute(text("DELETE FROM folga_campo_recesso WHERE filial_id = :fid"), {"fid": int(f_id_folga)})
+                        if session_key_df in str_lit.session_state:
+                            del str_lit.session_state[session_key_df]
                         registrar_auditoria("Limpeza Folga", f"Removeu folgas da filial {filial_folga_sel}")
                         str_lit.success("Apagado com sucesso!")
                         str_lit.rerun()
