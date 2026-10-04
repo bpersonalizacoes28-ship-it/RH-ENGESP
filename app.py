@@ -736,7 +736,7 @@ else:
         str_lit.title("🔄 Transferência de Colaboradores entre Filiais")
         try:
             df_transf = executar_query("""
-                SELECT c.matricula, c.nome, c.funcao as cargo, c.filial_id, f.nome as filial_nome
+                SELECT c.matricula, c.nome, c.funcao as cargo, c.filial_id, f.nome as filial_nome, c.he_50, c.he_100
                 FROM colaboradores c
                 LEFT JOIN filiais f ON c.filial_id = f.id
                 WHERE c.status_colaborador = 'Ativo'
@@ -761,7 +761,20 @@ else:
             lista_dest = [f for f in list(filiais_nome_para_id.keys()) if f != filial_origem_sel]
             if lista_dest:
                 filial_destino = str_lit.selectbox("🏢 2. Selecione a Filial de Destino:", options=lista_dest)
-                data_transf = str_lit.date_input("Data da Transferência", value=date.today(), format="DD/MM/YYYY")
+                
+                # Regra de data: Permitido estritamente do dia 01 ao dia 15 do mês atual
+                hoje = date.today()
+                inicio_mes = date(hoje.year, hoje.month, 1)
+                fim_quinzena = date(hoje.year, hoje.month, 15)
+                valor_inicial_data = min(max(hoje, inicio_mes), fim_quinzena)
+
+                data_transf = str_lit.date_input(
+                    "📅 Data da Transferência (Permitido apenas do dia 01 ao 15)", 
+                    value=valor_inicial_data, 
+                    min_value=inicio_mes, 
+                    max_value=fim_quinzena, 
+                    format="DD/MM/YYYY"
+                )
                 
                 # Configurações Adicionais para a Transferência
                 str_lit.markdown("### ⚙️ Configurações Adicionais para a Transferência")
